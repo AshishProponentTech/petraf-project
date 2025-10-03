@@ -1,9 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState } from "react";
 
 interface BasicInfoScreenProps {
   onNext: () => void;
@@ -13,6 +16,42 @@ interface BasicInfoScreenProps {
 }
 
 export default function BasicInfoScreen({ onNext, onBack, formData, updateFormData }: BasicInfoScreenProps) {
+  const [loading, setLoading] = useState(false)
+
+  const handleNext = async () => {
+    if (loading) return
+    
+    // Validate first
+    if (!formData.department?.trim() || !formData.position?.trim() || !formData.grade?.trim()) {
+      toast({ title: 'Missing required fields', description: 'Department, Position, and Grade are required.' })
+      return
+    }
+    
+    setLoading(true)
+    try {
+      console.log('Form data:', formData) // debug
+      await api.updateSessionInfo({
+        id: "01HN8X9QJ5ABCDEF123456789",
+        tenant_id: "550e8400-e29b-41d4-a716-446655440000",
+        employee_code: formData.employeeCode,
+        department: formData.department,
+        position: formData.position,
+        grade: formData.grade,
+        years_of_service: Number(formData.yearsOfService) || undefined,
+        age_range: formData.age,
+        job_type: formData.jobType,
+      })
+      // Only call onNext if validation passed and API call succeeded
+      onNext()
+    } catch (e) {
+      // swallow for mock
+      console.error('API error:', e)
+      onNext() // Still proceed in mock mode even if API fails
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
@@ -24,15 +63,15 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-16 sm:w-24 h-1 bg-blue-500 rounded"></div>
-              <span className="font-medium whitespace-nowrap">1. 基本情報</span>
+              <span className="font-medium whitespace-nowrap">1. Basic Info</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-16 sm:w-24 h-1 bg-gray-300 rounded"></div>
-              <span className="text-gray-400 whitespace-nowrap">2. 方針・計画</span>
+              <span className="text-gray-400 whitespace-nowrap">2. Plans</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-16 sm:w-24 h-1 bg-gray-300 rounded"></div>
-              <span className="text-gray-400 whitespace-nowrap">3. 上位方針</span>
+              <span className="text-gray-400 whitespace-nowrap">3. Company Direction</span>
             </div>
           </div>
         </div>
@@ -42,7 +81,7 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-2xl sm:text-3xl font-bold mb-8 sm:mb-12 text-center text-gray-900">
-            基本情報入力
+            Enter Basic Information
           </h1>
 
           <div className="space-y-8">
@@ -50,7 +89,7 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="department" className="text-sm font-medium mb-2 block">
-                  所属部門
+                  Department
                 </Label>
                 <Input
                   id="department"
@@ -61,7 +100,7 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
               </div>
               <div>
                 <Label htmlFor="position" className="text-sm font-medium mb-2 block">
-                  役職
+                  Position
                 </Label>
                 <Input
                   id="position"
@@ -76,7 +115,7 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="grade" className="text-sm font-medium mb-2 block">
-                  等級
+                  Grade
                 </Label>
                 <Input
                   id="grade"
@@ -87,21 +126,21 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
               </div>
               <div>
                 <Label htmlFor="yearsOfService" className="text-sm font-medium mb-2 block">
-                  勤続年数
+                  Years of Service
                 </Label>
                 <Select
                   value={formData.yearsOfService}
                   onValueChange={(value) => updateFormData("yearsOfService", value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="選択してください" />
+                    <SelectValue placeholder="Select" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">1年</SelectItem>
-                    <SelectItem value="2">2年</SelectItem>
-                    <SelectItem value="3">3年</SelectItem>
-                    <SelectItem value="5">5年</SelectItem>
-                    <SelectItem value="10">10年以上</SelectItem>
+                    <SelectItem value="1">1 year</SelectItem>
+                    <SelectItem value="2">2 years</SelectItem>
+                    <SelectItem value="3">3 years</SelectItem>
+                    <SelectItem value="5">5 years</SelectItem>
+                    <SelectItem value="10">10+ years</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -112,26 +151,26 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <Label htmlFor="age" className="text-sm font-medium mb-2 block">
-                    年齢
+                    Age Range
                   </Label>
                   <Select
                     value={formData.age}
                     onValueChange={(value) => updateFormData("age", value)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="選択してください" />
+                    <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="20s">20代</SelectItem>
-                      <SelectItem value="30s">30代</SelectItem>
-                      <SelectItem value="40s">40代</SelectItem>
-                      <SelectItem value="50s">50代</SelectItem>
+                      <SelectItem value="20s">20s</SelectItem>
+                      <SelectItem value="30s">30s</SelectItem>
+                      <SelectItem value="40s">40s</SelectItem>
+                      <SelectItem value="50s">50s</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="jobType" className="text-sm font-medium mb-2 block">
-                    職種
+                    Job Type
                   </Label>
                   <Input
                     id="jobType"
@@ -147,10 +186,11 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
           {/* Actions */}
           <div className="flex flex-col sm:flex-row justify-end gap-4 mt-12">
             <Button
-              onClick={onNext}
+              onClick={handleNext}
+              disabled={loading}
               className="bg-black hover:bg-gray-800 text-white px-12 py-6 rounded-full text-lg font-medium w-full sm:w-auto"
             >
-              次へ
+              {loading ? 'Saving...' : 'Next'}
             </Button>
           </div>
         </div>

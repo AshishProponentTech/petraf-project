@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import IntroScreen from "@/components/screens/IntroScreen";
 import TokenScreen from "@/components/screens/TokenScreen";
 import BasicInfoScreen from "@/components/screens/BasicInfoScreen";
@@ -8,6 +8,7 @@ import GoalsScreen from "@/components/screens/GoalsScreen";
 import ChatScreen from "@/components/screens/ChatScreen";
 import SummaryScreen from "@/components/screens/SummaryScreen";
 import SidebarLayout from "@/components/layout/SidebarLayout";
+import { api } from "@/lib/api";
 
 export default function Home() {
   const [step, setStep] = useState(0);
@@ -25,12 +26,41 @@ export default function Home() {
     superiorGoals: [""]
   });
 
+  useEffect(() => {
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('resume_token='))
+        ?.split('=')[1]
+      if (token) {
+        api.resumeSession(token).catch(() => {})
+      }
+    } catch {}
+  }, [])
+
   const updateFormData = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const nextStep = () => setStep(prev => prev + 1);
   const prevStep = () => setStep(prev => prev - 1);
+  const startNew = () => {
+    setStep(0);
+    setFormData({
+      token: "",
+      department: "",
+      position: "",
+      grade: "",
+      yearsOfService: "",
+      age: "",
+      jobType: "",
+      futureGoal: "",
+      departmentGoal: "",
+      companyGoal: "",
+      superiorGoals: [""]
+    });
+    try { localStorage.setItem('petraf_progress', '0') } catch {}
+  };
 
   const renderScreen = () => {
     switch (step) {
@@ -56,7 +86,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50">
       {showSidebar ? (
-        <SidebarLayout formData={formData}>
+        <SidebarLayout formData={formData} onStartNew={startNew}>
           {renderScreen()}
         </SidebarLayout>
       ) : (

@@ -1,0 +1,2175 @@
+# Documentation
+
+## Project Overview
+
+**Petraf** is an AI-powered goal-setting assistant designed for corporate employees. It guides employees through a structured conversation to create SMART (Specific, Measurable, Achievable, Relevant, Time-bound) goals aligned with company values and policies.
+
+---
+
+## Real-World Example: Sunrise Corp & Sarah
+
+### Company: Sunrise Corp
+
+- **Industry**: Technology/Software
+- **Size**: 500 employees
+- **Domain**: [sunrise.petraf.com](http://sunrise.petraf.com/)
+- **Tenant ID**: `550e8400-e29b-41d4-a716-446655440000`
+- **Admin**: John Davis (HR Manager)
+
+### Employee: Sarah Johnson
+
+- **Employee Code**: EMP12345
+- **Department**: Engineering
+- **Position**: Software Engineer
+- **Grade**: L4
+- **Years of Service**: 3 years
+- **Age Range**: 28-32
+- **Job Type**: Full-time
+
+---
+
+## Phase 1: Admin Setup (Done by Company HR/Admin)
+
+### Step 1.1: Admin Creates Tenant Account via Seed Script
+
+**Who does this**: John Davis (HR Manager at Sunrise Corp)
+
+**What happens**:
+
+- Sunrise Corp signs up for Petraf
+- System admin runs seed script to create tenant account with unique configuration
+- Admin receives admin API key
+
+**Note**: The `POST /api/admin/tenant` endpoint does **not exist**. Tenant creation is handled via database seed scripts during onboarding.
+
+**Seed Script** (run by system administrator):
+
+```bash
+python -m app.database.seed_tenant \\
+  --slug "sunrise-corp" \\
+  --name "Sunrise Corporation" \\
+  --domain "sunrise.petraf.com" \\
+  --admin-email "john.davis@sunrisecorp.com"
+
+```
+
+**What's created in database**:
+
+```sql
+-- Insert tenant
+INSERT INTO tenants (
+  id, slug, name, domain, status,
+  contact_email, contact_name, created_at, updated_at
+) VALUES (
+  '550e8400-e29b-41d4-a716-446655440000',
+  'sunrise-corp',
+  'Sunrise Corporation',
+  'sunrise.petraf.com',
+  'active',
+  'john.davis@sunrisecorp.com',
+  'John Davis',
+  NOW(),
+  NOW()
+);
+
+-- Insert tenant config
+INSERT INTO tenant_configs (
+  id, tenant_id,
+  prompts_json, scoring_rubric_json,
+  threshold, ui_flags_json, rag_enabled,
+  session_expiration_days, llm_model,
+  created_at, updated_at
+) VALUES (
+  'cfg_001',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '{
+    "system_prompt": "You are a goal-setting assistant for Sunrise Corp employees...",
+    "g4_future_prompt": "Help employees envision their role in 2 years...",
+    "g6_values_prompt": "Guide employees to identify their core values...",
+    "g8_actions_prompt": "Help create specific, actionable steps..."
+  }',
+  '{
+    "g4_future": {
+      "specificity": {"weight": 30, "description": "Goal must be specific"},
+      "measurability": {"weight": 25, "description": "Must have clear metrics"},
+      "time_bound": {"weight": 20, "description": "Must have timeline"},
+      "alignment": {"weight": 25, "description": "Aligns with company goals"}
+    }
+  }',
+  7,
+  '{
+    "show_age_field": true,
+    "show_years_of_service": true,
+    "show_grade": true
+  }',
+  true,
+  14,
+  'gpt-4o-mini',
+  NOW(),
+  NOW()
+);
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, created_at, updated_at
+) VALUES (
+  'audit_001',
+  '550e8400-e29b-41d4-a716-446655440000',
+  NULL,
+  'system_admin',
+  'tenant.created',
+  'tenant',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '{"slug": "sunrise-corp", "name": "Sunrise Corporation", "domain": "sunrise.petraf.com"}',
+  'success',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+### Step 1.2: Admin Uploads Company Knowledge Base (RAG Documents)
+
+**Who does this**: John Davis uploads company documents
+
+**What happens**:
+
+- Admin uploads company policies, values, career frameworks
+- System converts documents to vector embeddings
+- These documents will be used to provide context-aware suggestions
+
+**API Call**:
+
+```bash
+POST /api/admin/rag/upload/550e8400-e29b-41d4-a716-446655440000
+
+```
+
+**Request** (multipart form data):
+
+```
+Headers:
+  X-Admin-Key: admin_sk_sunrise_abc123xyz789
+  Content-Type: multipart/form-data
+
+Form Data:
+  file: @company_career_framework.pdf
+  category: "career_framework"
+  metadata: {
+    "title": "Engineering Career Framework 2025",
+    "version": "1.0",
+    "department": "Engineering"
+  }
+
+```
+
+**What system does**:
+
+1. Receives PDF file
+2. Extracts text from PDF
+3. Chunks text into 500-800 character segments
+4. Generates embeddings using OpenAI (1536 dimensions)
+5. Stores in `rag_corpus` table with tenant isolation
+
+**Database Entry** (rag_corpus table):
+
+```sql
+INSERT INTO rag_corpus (
+  id, tenant_id, content, embedding, metadata, category,
+  created_at, updated_at
+) VALUES (
+  'rag_001',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'Software Engineer (L4) -> Senior Engineer (L5) requires:
+   - 3+ years experience
+   - Technical leadership in 2+ projects
+   - Mentoring junior developers
+   - System design expertise',
+  '[0.123, -0.456, 0.789, ...]', -- 1536-dimensional vector
+  '{"title": "Engineering Career Framework", "page": 5}',
+  'career_framework',
+  NOW(),
+  NOW()
+);
+
+```
+
+**Admin uploads multiple documents**:
+
+1. Career Framework (career_framework.pdf)
+2. Company Values (values_and_culture.pdf)
+3. Engineering Best Practices (engineering_guidelines.pdf)
+4. Performance Review Process (performance_guidelines.pdf)
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "message": "Document processed successfully",
+  "chunks_created": 24,
+  "document_id": "doc_abc123",
+  "category": "career_framework"
+}
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, ip_address, user_agent,
+  created_at, updated_at
+) VALUES (
+  'audit_002',
+  '550e8400-e29b-41d4-a716-446655440000',
+  NULL,
+  'john.davis@sunrisecorp.com',
+  'rag.document_uploaded',
+  'rag_corpus',
+  'doc_abc123',
+  '{"category": "career_framework", "chunks": 24, "filename": "company_career_framework.pdf"}',
+  'success',
+  '203.0.113.45',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+## Phase 2: Employee Starts Goal-Setting (Sarah's Journey)
+
+### Step 2.1: Sarah Opens the Application
+
+**What happens**:
+
+- Sarah visits: [https://sunrise.petraf.com](https://sunrise.petraf.com/)
+- Frontend loads and makes initial health check
+
+**API Call 1**: Health Check
+
+```bash
+GET /api/health
+
+```
+
+**Response**:
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "timestamp": "2025-01-10T09:00:00.000Z",
+  "services": {
+    "database": "healthy",
+    "redis": "not_configured",
+    "openai": "configured"
+  }
+}
+
+```
+
+---
+
+### Step 2.2: Frontend Creates New Session for Sarah
+
+**Who triggers this**: Frontend application (automatically on first visit)
+
+**API Call**:
+
+```bash
+POST /api/session/create
+
+```
+
+**Request**:
+
+```
+Headers:
+  Host: sunrise.petraf.com
+  User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)...
+  X-Tenant-ID: 550e8400-e29b-41d4-a716-446655440000
+
+Body:
+{
+  "metadata": {
+    "source": "web",
+    "device": "desktop"
+  }
+}
+
+```
+
+**What backend does**:
+
+1. **Tenant Resolution**:
+    - Middleware extracts tenant from Host header or X-Tenant-ID
+    - Looks up Sunrise Corp tenant in database
+    - Validates tenant is active
+2. **Session Creation**:
+    - Generates ULID for session: `01HN8X9QJ5ABCDEF123456789`
+    - Creates resume token (JWT signed with HS256)
+    - Hashes token with SHA-256 for storage
+    - Sets expiration to 14 days from now
+3. **Database Operations**:
+    
+    ```sql
+    -- Insert into sessions table
+    INSERT INTO sessions (
+      id, tenant_id, status, user_agent_hash, ip_hash,
+      resume_token_hash, expires_at, created_at, updated_at
+    ) VALUES (
+      '01HN8X9QJ5ABCDEF123456789',
+      '550e8400-e29b-41d4-a716-446655440000',
+      'active',
+      'hash_of_user_agent',
+      'hash_of_ip',
+      'a3f5c8b9d1e2f4...',  -- SHA-256 hash
+      '2025-01-24T09:00:00',
+      '2025-01-10T09:00:00',
+      '2025-01-10T09:00:00'
+    );
+    
+    -- Insert initial conversation state
+    INSERT INTO conversation_state (
+      session_id, phase, step, retry_count,
+      consecutive_low_scores, last_score,
+      created_at, updated_at
+    ) VALUES (
+      '01HN8X9QJ5ABCDEF123456789',
+      'g2_basic',  -- Starting phase
+      'collect',   -- Starting step
+      0, 0, NULL,
+      NOW(), NOW()
+    );
+    
+    ```
+    
+
+**Response**:
+
+```json
+{
+  "session_id": "01HN8X9QJ5ABCDEF123456789",
+  "resume_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzZXNzaW9uX2lkIjoiMDFITjhYOVFKNUFCQ0RFRjEyMzQ1Njc4OSIsInRlbmFudF9pZCI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMCIsIm5vbmNlIjoiYWJjMTIzIiwiZXhwIjoxNzM3NzE1MjAwLCJpYXQiOjE3MzY1MDU2MDAsInR5cGUiOiJyZXN1bWVfdG9rZW4iLCJ2ZXJzaW9uIjoiMS4wIn0.signature",
+  "expires_at": "2025-01-24T09:00:00.000Z",
+  "status": "active"
+}
+
+```
+
+**Cookie Set by Backend**:
+
+```
+Set-Cookie: resume_token=eyJhbGci...;
+            Max-Age=1209600;
+            Path=/;
+            HttpOnly;
+            Secure;
+            SameSite=Lax
+
+```
+
+**Frontend stores**:
+
+- Session ID in local state/context
+- Resume token in memory (already in cookie)
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, ip_address, user_agent,
+  created_at, updated_at
+) VALUES (
+  'audit_003',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'anonymous',
+  'session.created',
+  'session',
+  '01HN8X9QJ5ABCDEF123456789',
+  '{"source": "web", "device": "desktop"}',
+  'success',
+  '192.168.1.100',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+### Step 2.3: Sarah Fills Basic Information
+
+**Who does this**: Sarah fills out her employee details
+
+**Frontend shows form**:
+
+```
+┌─────────────────────────────────────┐
+│  Welcome to Goal Setting!           │
+│                                     │
+│  Employee Code: [EMP12345____]     │
+│  Department:    [Engineering_]     │
+│  Position:      [Software Engineer]│
+│  Grade:         [L4____________]   │
+│  Years here:    [3 years_______]   │
+│  Age Range:     [28-32_________]   │
+│  Job Type:      [Full-time_____]   │
+│                                     │
+│         [Continue →]                │
+└─────────────────────────────────────┘
+
+```
+
+**Sarah fills**:
+
+- Employee Code: EMP12345
+- Department: Engineering
+- Position: Software Engineer
+- Grade: L4
+- Years of Service: 3
+- Age Range: 28-32
+- Job Type: Full-time
+
+**API Call**:
+
+```bash
+PUT /api/session/01HN8X9QJ5ABCDEF123456789/info
+
+```
+
+**Request**:
+
+```json
+{
+  "employee_code": "EMP12345",
+  "department": "Engineering",
+  "position": "Software Engineer",
+  "grade": "L4",
+  "years_of_service": 3,
+  "age_range": "28-32",
+  "job_type": "full_time"
+}
+
+```
+
+**What backend does**:
+
+1. Validates session exists and belongs to tenant
+2. Updates session record with employee information
+3. Updates completion percentage (now 10%)
+
+**Database Update**:
+
+```sql
+UPDATE sessions
+SET
+  employee_code = 'EMP12345',
+  department = 'Engineering',
+  position = 'Software Engineer',
+  grade = 'L4',
+  years_of_service = 3,
+  age_range = '28-32',
+  job_type = 'full_time',
+  completion_percentage = 10,
+  updated_at = NOW()
+WHERE id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Response**:
+
+```json
+{
+  "id": "01HN8X9QJ5ABCDEF123456789",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "active",
+  "employee_code": "EMP12345",
+  "department": "Engineering",
+  "position": "Software Engineer",
+  "grade": "L4",
+  "years_of_service": 3,
+  "age_range": "28-32",
+  "job_type": "full_time",
+  "completion_percentage": 10,
+  "created_at": "2025-01-10T09:00:00.000Z",
+  "updated_at": "2025-01-10T09:05:00.000Z",
+  "last_accessed_at": "2025-01-10T09:05:00.000Z"
+}
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, changes, status,
+  ip_address, user_agent,
+  created_at, updated_at
+) VALUES (
+  'audit_004',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'session.info_updated',
+  'session',
+  '01HN8X9QJ5ABCDEF123456789',
+  '{"employee_code": "EMP12345", "department": "Engineering", "position": "Software Engineer"}',
+  '{"fields_updated": ["employee_code", "department", "position", "grade", "years_of_service", "age_range", "job_type"]}',
+  'success',
+  '192.168.1.100',
+  'Mozilla/5.0',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+## Phase 3: Conversation - Where do you see yourself? (g4_future)
+
+### Step 3.1: Sarah Starts Phase g4 - Future Vision
+
+**Frontend displays**:
+
+```
+┌─────────────────────────────────────────────┐
+│  AI Assistant                               │
+│                                             │
+│  Hi Sarah! Let's start by looking ahead.   │
+│                                             │
+│  Where do you see yourself in 2 years?     │
+│  Think about:                               │
+│  • What role or position you'd like         │
+│  • What skills you want to develop          │
+│  • What impact you want to make             │
+│                                             │
+│  [Type your answer here...___________]     │
+│                                             │
+│                            [Send →]         │
+└─────────────────────────────────────────────┘
+
+```
+
+**Sarah types**:
+
+> "I want to become a senior engineer and maybe start leading a small team. I'd like to work on more complex systems and mentor junior developers."
+> 
+
+**API Call** (SSE Stream):
+
+```bash
+POST /api/chat/g4_future/stream
+
+```
+
+**Request**:
+
+```json
+{
+  "session_id": "01HN8X9QJ5ABCDEF123456789",
+  "message": "I want to become a senior engineer and maybe start leading a small team. I'd like to work on more complex systems and mentor junior developers.",
+  "step": "collect",
+  "context": {}
+}
+
+```
+
+**What backend does** (detailed flow):
+
+### 3.1.1: Validate Request
+
+```python
+# 1. Validate session exists
+session = await session_service.get_session("01HN8X9QJ5ABCDEF123456789")
+if not session:
+    raise HTTPException(404, "Session not found")
+
+# 2. Validate tenant access
+if session.tenant_id != "550e8400-e29b-41d4-a716-446655440000":
+    raise HTTPException(403, "Access denied")
+
+# 3. Get current FSM state
+current_state = await fsm_service.get_current_state(session_id)
+# Returns: {"phase": "g4_future", "step": "collect"}
+
+# 4. Validate phase/step match
+if current_state["phase"] != "g4_future" or current_state["step"] != "collect":
+    raise HTTPException(400, "Phase/step mismatch")
+
+```
+
+### 3.1.2: Get RAG Context
+
+```python
+# Query RAG for relevant context
+rag_context = await rag_service.get_context_for_query(
+    tenant_id="550e8400-e29b-41d4-a716-446655440000",
+    query=user_message,
+    phase="g4_future"
+)
+
+# Backend does:
+# 1. Convert user message to embedding using OpenAI
+user_embedding = await openai.create_embedding(
+    text="I want to become a senior engineer...",
+    model="text-embedding-3-small"
+)
+# Returns: [0.234, -0.567, 0.891, ...] (1536 dimensions)
+
+# 2. Search similar documents in rag_corpus
+query = """
+SELECT content, metadata,
+       1 - (embedding <=> :query_embedding) as similarity
+FROM rag_corpus
+WHERE tenant_id = :tenant_id
+  AND category IN ('career_framework', 'values')
+ORDER BY similarity DESC
+LIMIT 3
+"""
+
+# Results:
+# 1. "Senior Engineer (L5) requires 3+ years, technical leadership..." (similarity: 0.89)
+# 2. "Team leads should mentor 2+ developers, lead projects..." (similarity: 0.85)
+# 3. "Complex systems require architecture design skills..." (similarity: 0.82)
+
+rag_context = {
+  "relevant_docs": [
+    {
+      "content": "Senior Engineer (L5) progression from L4 requires...",
+      "source": "Career Framework",
+      "relevance": 0.89
+    },
+    {
+      "content": "Technical leadership involves mentoring...",
+      "source": "Leadership Guidelines",
+      "relevance": 0.85
+    }
+  ]
+}
+
+```
+
+### 3.1.3: Build Prompt for OpenAI
+
+```python
+# Get tenant-specific prompts
+system_prompt = tenant_prompt_manager.get_prompt(
+    tenant_id="550e8400-e29b-41d4-a716-446655440000",
+    name="system.goal_assistant",
+    employee_role="Software Engineer",
+    company_name="Sunrise Corporation",
+    phase="g4_future",
+    step="collect"
+)
+
+# System prompt becomes:
+"""
+You are an AI goal-setting assistant helping Software Engineer at Sunrise Corporation.
+Your role is to guide them through creating SMART goals for their professional development.
+Be encouraging, specific, and actionable in your responses.
+Current phase: g4_future, Step: collect
+"""
+
+# Get phase-specific prompt
+phase_prompt = tenant_prompt_manager.get_prompt(
+    tenant_id="550e8400-e29b-41d4-a716-446655440000",
+    name="collect.g4_future"
+)
+
+# Compose final messages
+messages = [
+    {
+        "role": "system",
+        "content": system_prompt
+    },
+    {
+        "role": "system",
+        "content": f"Context from company knowledge base:\\n{rag_context_summary}"
+    },
+    {
+        "role": "assistant",
+        "content": phase_prompt
+    },
+    {
+        "role": "user",
+        "content": "I want to become a senior engineer and maybe start leading a small team. I'd like to work on more complex systems and mentor junior developers."
+    }
+]
+
+```
+
+### 3.1.4: Stream Response from OpenAI
+
+```python
+# Call OpenAI with streaming
+async for chunk in openai_client.create_streaming_completion(
+    messages=messages,
+    model="gpt-4o",
+    temperature=0.7,
+    max_tokens=1000
+):
+    # Yield SSE events to frontend
+    yield {
+        "event": "message",
+        "data": {
+            "content": chunk,
+            "phase": "g4_future",
+            "step": "collect",
+            "chunk_index": chunk_count
+        }
+    }
+
+```
+
+**SSE Response Stream** (what Sarah sees in real-time):
+
+```
+event: start
+data: {"phase":"g4_future","step":"collect","timestamp":"2025-01-10T09:10:00.000Z"}
+
+event: message
+data: {"content":"That's ","phase":"g4_future","step":"collect","chunk_index":1}
+
+event: message
+data: {"content":"a wonderful ","phase":"g4_future","step":"collect","chunk_index":2}
+
+event: message
+data: {"content":"vision, Sarah! ","phase":"g4_future","step":"collect","chunk_index":3}
+
+event: message
+data: {"content":"Becoming a senior engineer ","phase":"g4_future","step":"collect","chunk_index":4}
+
+event: message
+data: {"content":"and leading a team ","phase":"g4_future","step":"collect","chunk_index":5}
+
+event: message
+data: {"content":"shows great ambition. ","phase":"g4_future","step":"collect","chunk_index":6}
+
+event: message
+data: {"content":"Based on Sunrise Corp's ","phase":"g4_future","step":"collect","chunk_index":7}
+
+event: message
+data: {"content":"career framework, the path ","phase":"g4_future","step":"collect","chunk_index":8}
+
+event: message
+data: {"content":"from L4 to L5 Senior Engineer ","phase":"g4_future","step":"collect","chunk_index":9}
+
+event: message
+data: {"content":"typically requires:\\n\\n","phase":"g4_future","step":"collect","chunk_index":10}
+
+event: message
+data: {"content":"• 3+ years of experience (you're at 3 already!)\\n","phase":"g4_future","step":"collect","chunk_index":11}
+
+event: message
+data: {"content":"• Technical leadership in 2+ projects\\n","phase":"g4_future","step":"collect","chunk_index":12}
+
+event: message
+data: {"content":"• Mentoring junior developers\\n","phase":"g4_future","step":"collect","chunk_index":13}
+
+event: message
+data: {"content":"• System design expertise\\n\\n","phase":"g4_future","step":"collect","chunk_index":14}
+
+event: message
+data: {"content":"Let's make this more specific! ","phase":"g4_future","step":"collect","chunk_index":15}
+
+event: message
+data: {"content":"Tell me: What specific technical areas ","phase":"g4_future","step":"collect","chunk_index":16}
+
+event: message
+data: {"content":"do you want to master? ","phase":"g4_future","step":"collect","chunk_index":17}
+
+event: message
+data: {"content":"And how many people ","phase":"g4_future","step":"collect","chunk_index":18}
+
+event: message
+data: {"content":"would you like to lead?","phase":"g4_future","step":"collect","chunk_index":19}
+
+event: complete
+data: {"phase":"g4_future","step":"collect","full_response":"That's a wonderful vision, Sarah! Becoming a senior engineer and leading a team shows great ambition. Based on Sunrise Corp's career framework, the path from L4 to L5 Senior Engineer typically requires:\\n\\n• 3+ years of experience (you're at 3 already!)\\n• Technical leadership in 2+ projects\\n• Mentoring junior developers\\n• System design expertise\\n\\nLet's make this more specific! Tell me: What specific technical areas do you want to master? And how many people would you like to lead?","chunks":19,"tokens_used":{"input":245,"output":178,"total":423},"latency_ms":2340,"timestamp":"2025-01-10T09:10:02.340Z"}
+
+```
+
+### 3.1.5: Save Message to Database
+
+```sql
+-- Save user message
+INSERT INTO messages (
+  id, session_id, tenant_id, role, content,
+  phase, step, tokens_prompt, tokens_completion,
+  latency_ms, created_at, updated_at
+) VALUES (
+  'msg_001',
+  '01HN8X9QJ5ABCDEF123456789',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'user',
+  'I want to become a senior engineer and maybe start leading a small team...',
+  'g4_future',
+  'collect',
+  245, 0, 0,
+  '2025-01-10T09:10:00',
+  '2025-01-10T09:10:00'
+);
+
+-- Save assistant response
+INSERT INTO messages (
+  id, session_id, tenant_id, role, content,
+  phase, step, tokens_prompt, tokens_completion,
+  latency_ms, model_used, created_at, updated_at
+) VALUES (
+  'msg_002',
+  '01HN8X9QJ5ABCDEF123456789',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'assistant',
+  'That''s a wonderful vision, Sarah! Becoming a senior engineer...',
+  'g4_future',
+  'collect',
+  245, 178, 2340,
+  'gpt-4o',
+  '2025-01-10T09:10:02',
+  '2025-01-10T09:10:02'
+);
+
+```
+
+---
+
+### Step 3.2: Sarah Provides More Details
+
+**Sarah responds**:
+
+> "I want to master distributed systems and microservices architecture. I'd like to lead a team of 3-4 developers and work on our payment processing platform."
+> 
+
+**API Call**:
+
+```bash
+POST /api/chat/g4_future/stream
+
+```
+
+**Request**:
+
+```json
+{
+  "session_id": "01HN8X9QJ5ABCDEF123456789",
+  "message": "I want to master distributed systems and microservices architecture. I'd like to lead a team of 3-4 developers and work on our payment processing platform.",
+  "step": "collect",
+  "context": {
+    "previous_messages": 2
+  }
+}
+
+```
+
+**Backend processes similarly and responds**:
+
+```
+AI: Perfect! That's very specific. Now I have a clear picture:
+
+🎯 Your 2-Year Vision:
+• Position: Senior Engineer (L5) leading a team
+• Technical Focus: Distributed systems & microservices
+• Team Size: 3-4 developers
+• Domain: Payment processing platform
+• Location: Sunrise Corp Engineering
+
+This is excellent! I'm going to refine this into a SMART goal now.
+One moment... ⏳
+
+```
+
+**Backend then transitions to "refine" step automatically**.
+
+---
+
+### Step 3.3: Backend Refines the Goal (Automatic Transition)
+
+**What happens**: Backend automatically moves from "collect" → "refine"
+
+**FSM Transition**:
+
+```sql
+UPDATE conversation_state
+SET
+  step = 'refine',
+  updated_at = NOW()
+WHERE session_id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Backend calls OpenAI again** with refine prompt:
+
+**Prompt to OpenAI**:
+
+```
+System: You are refining a 2-year career goal for a Software Engineer at Sunrise Corp.
+
+Original Input: "I want to become a senior engineer and lead a team of 3-4 developers working on payment processing with expertise in distributed systems."
+
+Your task: Create a refined SMART goal (max 300 characters) that is:
+• Specific: Clear role and responsibilities
+• Measurable: Quantifiable outcomes
+• Achievable: Realistic for 2 years
+• Relevant: Aligned with company needs
+• Time-bound: 2-year timeframe
+
+Company Context: [RAG context about career progression, payment platform priorities]
+
+Refined Goal (max 300 chars):
+
+```
+
+**OpenAI Returns**:
+
+```
+"Within 24 months, advance to Senior Engineer (L5) by leading a team of 3-4 developers on the payment processing platform, achieving expertise in distributed systems architecture, and successfully delivering 2 major microservices migration projects while mentoring 2 junior developers."
+
+```
+
+**Character count**: 287 ✅
+
+**Frontend displays**:
+
+```
+┌─────────────────────────────────────────────┐
+│  AI Assistant                               │
+│                                             │
+│  ✨ I've refined your goal:                │
+│                                             │
+│  "Within 24 months, advance to Senior      │
+│   Engineer (L5) by leading a team of 3-4   │
+│   developers on the payment processing     │
+│   platform, achieving expertise in         │
+│   distributed systems architecture, and    │
+│   successfully delivering 2 major          │
+│   microservices migration projects while   │
+│   mentoring 2 junior developers."          │
+│                                             │
+│  Does this capture your vision?             │
+│                                             │
+│  [✓ Yes, perfect!]  [✏ Edit this]         │
+└─────────────────────────────────────────────┘
+
+```
+
+**Backend automatically transitions to "score" step**.
+
+---
+
+### Step 3.4: Backend Scores the Goal (Automatic)
+
+**What happens**: System evaluates goal against scoring rubric
+
+**FSM Transition**:
+
+```sql
+UPDATE conversation_state
+SET
+  step = 'score',
+  updated_at = NOW()
+WHERE session_id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Backend calls OpenAI for scoring**:
+
+**Scoring Prompt**:
+
+```json
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a goal scoring expert. Evaluate goals against SMART criteria."
+    },
+    {
+      "role": "user",
+      "content": "Score this g4_future goal against the rubric:\\n\\nGoal: \\"Within 24 months, advance to Senior Engineer (L5) by leading a team of 3-4 developers on the payment processing platform, achieving expertise in distributed systems architecture, and successfully delivering 2 major microservices migration projects while mentoring 2 junior developers.\\"\\n\\nRubric:\\n- Specificity (30%): Goal must be specific about role, responsibilities\\n- Measurability (25%): Must have clear, quantifiable metrics\\n- Time-bound (20%): Must have explicit timeline\\n- Alignment (25%): Must align with company career progression\\n\\nProvide JSON response:\\n{\\n  \\"overall_score\\": <0-100>,\\n  \\"criteria\\": [\\n    {\\"name\\": \\"specificity\\", \\"score\\": <0-10>, \\"reasoning\\": \\"...\\"},\\n    {\\"name\\": \\"measurability\\", \\"score\\": <0-10>, \\"reasoning\\": \\"...\\"},\\n    {\\"name\\": \\"time_bound\\", \\"score\\": <0-10>, \\"reasoning\\": \\"...\\"},\\n    {\\"name\\": \\"alignment\\", \\"score\\": <0-10>, \\"reasoning\\": \\"...\\"}\\n  ],\\n  \\"feedback\\": \\"Overall assessment\\",\\n  \\"suggestions\\": [\\"suggestion1\\", \\"suggestion2\\"],\\n  \\"meets_threshold\\": <boolean>\\n}"
+    }
+  ],
+  "response_format": {"type": "json_object"}
+}
+
+```
+
+**OpenAI Returns**:
+
+```json
+{
+  "overall_score": 88,
+  "criteria": [
+    {
+      "name": "specificity",
+      "score": 9.0,
+      "weight": 30,
+      "weighted_score": 27.0,
+      "reasoning": "Very specific: mentions exact role (Senior Engineer L5), team size (3-4 developers), platform (payment processing), and technical area (distributed systems)"
+    },
+    {
+      "name": "measurability",
+      "score": 8.5,
+      "weight": 25,
+      "weighted_score": 21.25,
+      "reasoning": "Clear metrics: 2 major projects, 2 junior developers to mentor, specific promotion target"
+    },
+    {
+      "name": "time_bound",
+      "score": 10.0,
+      "weight": 20,
+      "weighted_score": 20.0,
+      "reasoning": "Explicitly states '24 months' timeframe"
+    },
+    {
+      "name": "alignment",
+      "score": 9.5,
+      "weight": 25,
+      "weighted_score": 23.75,
+      "reasoning": "Perfectly aligned with company's L4→L5 progression framework, payment platform is strategic priority"
+    }
+  ],
+  "weighted_total": 92.0,
+  "normalized_score": 8.8,
+  "feedback": "Excellent goal! Very specific, measurable, and aligned with Sunrise Corp's career framework. The inclusion of mentoring and project delivery shows leadership commitment.",
+  "suggestions": [
+    "Consider adding specific technologies or systems you'll master",
+    "Could specify timeline for interim milestones"
+  ],
+  "meets_threshold": true,
+  "threshold_used": 7.0
+}
+
+```
+
+**Score calculation**:
+
+```
+Weighted Score = Σ(criterion_score × weight)
+               = (9.0 × 0.30) + (8.5 × 0.25) + (10.0 × 0.20) + (9.5 × 0.25)
+               = 2.7 + 2.125 + 2.0 + 2.375
+               = 9.2 / 10
+               = 92 / 100
+
+Normalized (0-10): 9.2 ✅
+Threshold: 7.0 ✅
+Status: PASS 🎉
+
+```
+
+**Database Updates**:
+
+```sql
+-- Update conversation state with score
+UPDATE conversation_state
+SET
+  last_score = 9.2,
+  consecutive_low_scores = 0,
+  retry_count = 0,
+  updated_at = NOW()
+WHERE session_id = '01HN8X9QJ5ABCDEF123456789';
+
+-- Create goal record
+INSERT INTO goals (
+  id, session_id, tenant_id, type, phase,
+  content, score, is_final, version,
+  score_details, created_at, updated_at
+) VALUES (
+  'goal_001',
+  '01HN8X9QJ5ABCDEF123456789',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'future',
+  'g4_future',
+  'Within 24 months, advance to Senior Engineer (L5) by leading a team of 3-4 developers...',
+  9.2,
+  true,
+  1,
+  '{"criteria": [...], "threshold": 7.0, "meets_threshold": true}',
+  '2025-01-10T09:15:00',
+  '2025-01-10T09:15:00'
+);
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, created_at, updated_at
+) VALUES (
+  'audit_005',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'goal.scored',
+  'goal',
+  'goal_001',
+  '{"score": 9.2, "meets_threshold": true, "phase": "g4_future", "type": "future"}',
+  'success',
+  NOW(),
+  NOW()
+);
+
+```
+
+**Frontend displays**:
+
+```
+┌─────────────────────────────────────────────┐
+│  🎉 Great Job, Sarah!                       │
+│                                             │
+│  Your future vision goal scored: 9.2/10    │
+│  ✅ Exceeds threshold (7.0)                 │
+│                                             │
+│  📊 Breakdown:                              │
+│  Specificity:    ⭐⭐⭐⭐⭐ 9.0/10          │
+│  Measurability:  ⭐⭐⭐⭐⭐ 8.5/10          │
+│  Time-bound:     ⭐⭐⭐⭐⭐ 10.0/10         │
+│  Alignment:      ⭐⭐⭐⭐⭐ 9.5/10          │
+│                                             │
+│  ✨ This goal is now saved!                │
+│                                             │
+│  Progress: [████████░░] 33%                │
+│                                             │
+│            [Continue to Values →]           │
+└─────────────────────────────────────────────┘
+
+```
+
+**Session completion updated**:
+
+```sql
+UPDATE sessions
+SET
+  completion_percentage = 33,
+  updated_at = NOW()
+WHERE id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+---
+
+## Phase 4: Values Conversation (g6_values)
+
+### Step 4.1: Backend Transitions to g6_values Phase
+
+**FSM Transition**:
+
+```sql
+UPDATE conversation_state
+SET
+  phase = 'g6_values',
+  step = 'collect',
+  retry_count = 0,
+  updated_at = NOW()
+WHERE session_id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Frontend shows**:
+
+```
+┌─────────────────────────────────────────────┐
+│  AI Assistant                               │
+│                                             │
+│  Excellent! Now let's explore your          │
+│  core values. 🌟                            │
+│                                             │
+│  What 3-5 values are most important to      │
+│  you in your work?                          │
+│                                             │
+│  Examples: innovation, collaboration,       │
+│  integrity, growth, impact, balance         │
+│                                             │
+│  Understanding your values ensures your     │
+│  goals align with what truly matters.       │
+│                                             │
+│  [Type your values...____________]         │
+│                                             │
+│                            [Send →]         │
+└─────────────────────────────────────────────┘
+
+```
+
+**Sarah types**:
+
+> "I really value continuous learning, collaboration with my team, technical excellence, and making an impact through good code. Also work-life balance is important to me."
+> 
+
+**Same SSE streaming flow as before**:
+
+```bash
+POST /api/chat/g6_values/stream
+
+```
+
+**Request**:
+
+```json
+{
+  "session_id": "01HN8X9QJ5ABCDEF123456789",
+  "message": "I really value continuous learning, collaboration with my team, technical excellence, and making an impact through good code. Also work-life balance is important to me.",
+  "step": "collect",
+  "context": {
+    "previous_goal": "goal_001"
+  }
+}
+
+```
+
+**Backend does RAG search**:
+
+```sql
+-- Searches for company values in rag_corpus
+SELECT content, metadata
+FROM rag_corpus
+WHERE tenant_id = '550e8400-e29b-41d4-a716-446655440000'
+  AND category = 'values'
+ORDER BY embedding <=> :query_embedding
+LIMIT 3;
+
+```
+
+**Returns company values context**:
+
+```
+"Sunrise Corp's core values: Innovation, Collaboration, Excellence, Impact, Respect
+Engineering principles: Continuous learning, Code quality, Team mentorship, Work-life balance"
+
+```
+
+**AI refines Sarah's values**:
+
+```
+"Core Professional Values:
+• Continuous Learning: Staying current with technology and expanding expertise
+• Team Collaboration: Building strong relationships and sharing knowledge
+• Technical Excellence: Writing clean, maintainable, high-quality code
+• Meaningful Impact: Creating solutions that deliver real business value
+• Work-Life Balance: Maintaining sustainable pace and personal wellbeing"
+
+```
+
+**Score**: 8.7/10 ✅ (meets threshold)
+
+**Database**:
+
+```sql
+INSERT INTO goals (
+  id, session_id, tenant_id, type, phase,
+  content, score, is_final, version,
+  created_at, updated_at
+) VALUES (
+  'goal_002',
+  '01HN8X9QJ5ABCDEF123456789',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'values',
+  'g6_values',
+  'Core Professional Values: • Continuous Learning...',
+  8.7,
+  true,
+  1,
+  '2025-01-10T09:25:00',
+  '2025-01-10T09:25:00'
+);
+
+UPDATE sessions
+SET completion_percentage = 66, updated_at = NOW()
+WHERE id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, created_at, updated_at
+) VALUES (
+  'audit_006',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'goal.scored',
+  'goal',
+  'goal_002',
+  '{"score": 8.7, "meets_threshold": true, "phase": "g6_values", "type": "values"}',
+  'success',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+## Phase 5: Actions Conversation (g8_actions)
+
+### Step 5.1: Define Specific Actions
+
+**Frontend shows**:
+
+```
+┌─────────────────────────────────────────────┐
+│  AI Assistant                               │
+│                                             │
+│  Perfect! Now for the most important part:  │
+│  What specific actions will you take? 🎯   │
+│                                             │
+│  Based on your goal to become a Senior     │
+│  Engineer leading a team, what concrete     │
+│  steps will you take in the next 6 months? │
+│                                             │
+│  Think about:                               │
+│  • Skills to develop                        │
+│  • Projects to lead                         │
+│  • People to mentor                         │
+│  • Courses to complete                      │
+│                                             │
+│  [Type your action plan...________]        │
+│                                             │
+│                            [Send →]         │
+└─────────────────────────────────────────────┘
+
+```
+
+**Sarah's detailed response**:
+
+> "In the next 6 months I will:
+> 
+> 1. Complete AWS Solutions Architect certification
+> 2. Lead the payment gateway migration project
+> 3. Mentor 2 junior developers (Mike and Jenny)
+> 4. Present at our monthly tech talks about microservices
+> 5. Improve our deployment pipeline to reduce downtime
+> 6. Read 3 books on distributed systems"
+
+**Backend RAG search**:
+
+```sql
+-- Searches for relevant guidelines
+SELECT content FROM rag_corpus
+WHERE tenant_id = '550e8400-e29b-41d4-a716-446655440000'
+  AND category IN ('performance_guidelines', 'career_framework')
+  AND embedding <=> :query_embedding < 0.3
+LIMIT 5;
+
+```
+
+**RAG Context returned**:
+
+```
+"L4 to L5 progression requires:
+- Technical certification in cloud/architecture
+- Lead 2+ significant projects
+- Mentor minimum 2 developers
+- Public speaking/knowledge sharing
+- Process improvement initiatives"
+
+```
+
+**AI refines with SMART criteria**:
+
+```
+"6-Month Action Plan:
+1. Certification: Complete AWS Solutions Architect (by March 2025)
+2. Leadership: Lead payment gateway migration, delivering by May 2025
+3. Mentorship: Guide Mike & Jenny through 2 features each (ongoing)
+4. Knowledge Sharing: Present monthly tech talks on microservices (starting Feb)
+5. Process Improvement: Reduce deployment downtime by 50% (by April)
+6. Learning: Read & apply concepts from 3 distributed systems books (1 per 2 months)"
+
+```
+
+**Score**: 9.0/10 ✅
+
+**Database**:
+
+```sql
+INSERT INTO goals (
+  id, session_id, tenant_id, type, phase,
+  content, score, is_final, version,
+  created_at, updated_at
+) VALUES (
+  'goal_003',
+  '01HN8X9QJ5ABCDEF123456789',
+  '550e8400-e29b-41d4-a716-446655440000',
+  'actions',
+  'g8_actions',
+  '6-Month Action Plan: 1. Certification: Complete AWS...',
+  9.0,
+  true,
+  1,
+  '2025-01-10T09:35:00',
+  '2025-01-10T09:35:00'
+);
+
+UPDATE sessions
+SET
+  completion_percentage = 100,
+  status = 'completed',
+  updated_at = NOW()
+WHERE id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, created_at, updated_at
+) VALUES (
+  'audit_007',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'goal.scored',
+  'goal',
+  'goal_003',
+  '{"score": 9.0, "meets_threshold": true, "phase": "g8_actions", "type": "actions"}',
+  'success',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+### Step 5.2: Link Goals Together
+
+**Backend automatically creates goal relationships**:
+
+**API Call** (internal):
+
+```sql
+-- Link action goal to future goal
+INSERT INTO goal_links (
+  id, goal_id, parent_goal_id, link_type,
+  strength, notes, created_at, updated_at
+) VALUES (
+  'link_001',
+  'goal_003', -- actions
+  'goal_001', -- future vision
+  'contributes_to',
+  10,
+  'These actions directly support achieving the 2-year vision',
+  NOW(),
+  NOW()
+);
+
+-- Link action goal to values
+INSERT INTO goal_links (
+  id, goal_id, parent_goal_id, link_type,
+  strength, notes, created_at, updated_at
+) VALUES (
+  'link_002',
+  'goal_003', -- actions
+  'goal_002', -- values
+  'aligns_with',
+  9,
+  'Actions reflect core values of learning, collaboration, excellence',
+  NOW(),
+  NOW()
+);
+
+```
+
+---
+
+## Phase 6: Session Completion & Goal Retrieval
+
+### Step 6.1: Mark Session Complete
+
+**API Call**:
+
+```bash
+POST /api/session/01HN8X9QJ5ABCDEF123456789/complete
+
+```
+
+**Backend does**:
+
+```sql
+UPDATE sessions
+SET
+  status = 'completed',
+  completion_percentage = 100,
+  completed_at = NOW(),
+  updated_at = NOW()
+WHERE id = '01HN8X9QJ5ABCDEF123456789';
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, created_at, updated_at
+) VALUES (
+  'audit_008',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'session.completed',
+  'session',
+  '01HN8X9QJ5ABCDEF123456789',
+  '{"goals_created": 3, "duration_minutes": 45, "avg_score": 8.97}',
+  'success',
+  NOW(),
+  NOW()
+);
+
+```
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "message": "Session 01HN8X9QJ5ABCDEF123456789 completed successfully"
+}
+
+```
+
+---
+
+### Step 6.2: Retrieve All Goals
+
+**API Call**:
+
+```bash
+GET /api/goals/session/01HN8X9QJ5ABCDEF123456789?final_only=true
+
+```
+
+**Backend query**:
+
+```sql
+SELECT
+  g.id, g.type, g.phase, g.content,
+  g.score, g.is_final, g.version, g.created_at,
+  json_agg(
+    json_build_object(
+      'parent_goal_id', gl.parent_goal_id,
+      'link_type', gl.link_type,
+      'strength', gl.strength
+    )
+  ) as links
+FROM goals g
+LEFT JOIN goal_links gl ON g.id = gl.goal_id
+WHERE g.session_id = '01HN8X9QJ5ABCDEF123456789'
+  AND g.tenant_id = '550e8400-e29b-41d4-a716-446655440000'
+  AND g.is_final = true
+GROUP BY g.id
+ORDER BY g.created_at;
+
+```
+
+**Response**:
+
+```json
+{
+  "session_id": "01HN8X9QJ5ABCDEF123456789",
+  "employee": {
+    "code": "EMP12345",
+    "department": "Engineering",
+    "position": "Software Engineer",
+    "grade": "L4"
+  },
+  "goals": [
+    {
+      "id": "goal_001",
+      "type": "future",
+      "phase": "g4_future",
+      "content": "Within 24 months, advance to Senior Engineer (L5) by leading a team of 3-4 developers on the payment processing platform, achieving expertise in distributed systems architecture, and successfully delivering 2 major microservices migration projects while mentoring 2 junior developers.",
+      "score": 9.2,
+      "is_final": true,
+      "version": 1,
+      "created_at": "2025-01-10T09:15:00.000Z",
+      "links": []
+    },
+    {
+      "id": "goal_002",
+      "type": "values",
+      "phase": "g6_values",
+      "content": "Core Professional Values:\\n• Continuous Learning: Staying current with technology and expanding expertise\\n• Team Collaboration: Building strong relationships and sharing knowledge\\n• Technical Excellence: Writing clean, maintainable, high-quality code\\n• Meaningful Impact: Creating solutions that deliver real business value\\n• Work-Life Balance: Maintaining sustainable pace and personal wellbeing",
+      "score": 8.7,
+      "is_final": true,
+      "version": 1,
+      "created_at": "2025-01-10T09:25:00.000Z",
+      "links": []
+    },
+    {
+      "id": "goal_003",
+      "type": "actions",
+      "phase": "g8_actions",
+      "content": "6-Month Action Plan:\\n1. Certification: Complete AWS Solutions Architect (by March 2025)\\n2. Leadership: Lead payment gateway migration, delivering by May 2025\\n3. Mentorship: Guide Mike & Jenny through 2 features each (ongoing)\\n4. Knowledge Sharing: Present monthly tech talks on microservices (starting Feb)\\n5. Process Improvement: Reduce deployment downtime by 50% (by April)\\n6. Learning: Read & apply concepts from 3 distributed systems books (1 per 2 months)",
+      "score": 9.0,
+      "is_final": true,
+      "version": 1,
+      "created_at": "2025-01-10T09:35:00.000Z",
+      "links": [
+        {
+          "parent_goal_id": "goal_001",
+          "link_type": "contributes_to",
+          "strength": 10
+        },
+        {
+          "parent_goal_id": "goal_002",
+          "link_type": "aligns_with",
+          "strength": 9
+        }
+      ]
+    }
+  ],
+  "total": 3,
+  "completed": 3,
+  "summary": {
+    "avg_score": 8.97,
+    "duration_minutes": 45,
+    "message_count": 12,
+    "phases_completed": ["g4_future", "g6_values", "g8_actions"]
+  },
+  "timestamp": "2025-01-10T09:40:00.000Z"
+}
+
+```
+
+---
+
+## Phase 7: Sarah Returns After 3 Days
+
+### Scenario: Sarah wants to review her goals
+
+**Step 7.1: Resume Session with Token**
+
+**Sarah visits**: [https://sunrise.petraf.com](https://sunrise.petraf.com/)
+
+**Frontend checks for resume token in cookie**:
+
+```jsx
+const resumeToken = document.cookie
+  .split('; ')
+  .find(row => row.startsWith('resume_token='))
+  ?.split('=')[1];
+
+if (resumeToken) {
+  // Resume existing session
+  fetch('/api/session/resume', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant-ID': '550e8400-e29b-41d4-a716-446655440000'
+    },
+    body: JSON.stringify({ resume_token: resumeToken })
+  });
+}
+
+```
+
+**API Call**:
+
+```bash
+POST /api/session/resume
+
+```
+
+**Request**:
+
+```json
+{
+  "resume_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+
+```
+
+**Backend validates token**:
+
+```python
+# 1. Decode JWT
+payload = jwt.decode(
+    token,
+    settings.secret_key,
+    algorithms=["HS256"]
+)
+# Returns: {
+#   "session_id": "01HN8X9QJ5ABCDEF123456789",
+#   "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+#   "nonce": "abc123",
+#   "exp": 1737715200,
+#   "type": "resume_token"
+# }
+
+# 2. Check expiration
+if datetime.utcnow() > datetime.fromtimestamp(payload["exp"]):
+    raise HTTPException(401, "Token expired")
+
+# 3. Hash token and verify in database
+token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+session = db.query(Session).filter(
+    Session.id == payload["session_id"],
+    Session.resume_token_hash == token_hash
+).first()
+
+if not session:
+    raise HTTPException(401, "Invalid token")
+
+# 4. Update last accessed
+session.last_accessed_at = datetime.utcnow()
+db.commit()
+
+```
+
+**Response**:
+
+```json
+{
+  "id": "01HN8X9QJ5ABCDEF123456789",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "employee_code": "EMP12345",
+  "department": "Engineering",
+  "position": "Software Engineer",
+  "completion_percentage": 100,
+  "created_at": "2025-01-10T09:00:00.000Z",
+  "last_accessed_at": "2025-01-13T14:30:00.000Z"
+}
+
+```
+
+**Audit Log Entry**:
+
+```sql
+INSERT INTO audit_logs (
+  id, tenant_id, session_id,
+  actor, action, resource_type, resource_id,
+  payload, status, ip_address, user_agent,
+  created_at, updated_at
+) VALUES (
+  'audit_009',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '01HN8X9QJ5ABCDEF123456789',
+  'EMP12345',
+  'session.resumed',
+  'session',
+  '01HN8X9QJ5ABCDEF123456789',
+  '{"days_since_completion": 3}',
+  'success',
+  '192.168.1.100',
+  'Mozilla/5.0',
+  NOW(),
+  NOW()
+);
+
+```
+
+**Frontend shows dashboard**:
+
+```
+┌─────────────────────────────────────────────┐
+│  Welcome back, Sarah! 👋                    │
+│                                             │
+│  Your Goal-Setting Session                  │
+│  Completed: Jan 10, 2025                    │
+│  Status: ✅ Complete (100%)                │
+│                                             │
+│  [View Goals]  [Download PDF]  [Share]     │
+└─────────────────────────────────────────────┘
+
+```
+
+---
+
+## Phase 8: Admin Views Analytics
+
+### Step 8.1: Admin Checks System Stats
+
+**API Call**:
+
+```bash
+GET /api/admin/stats/overview
+
+```
+
+**Request Headers**:
+
+```
+X-Admin-Key: admin_sk_sunrise_abc123xyz789
+
+```
+
+**Backend aggregates data**:
+
+```sql
+-- Get overall statistics
+SELECT
+  (SELECT COUNT(*) FROM tenants WHERE status = 'active') as total_tenants,
+  (SELECT COUNT(*) FROM sessions WHERE status = 'active') as active_sessions,
+  (SELECT COUNT(*) FROM messages WHERE DATE(created_at) = CURRENT_DATE) as messages_today,
+  (SELECT COUNT(*) FROM goals WHERE is_final = true) as total_goals,
+  (SELECT AVG(completion_percentage) FROM sessions WHERE status = 'completed') as avg_completion;
+
+```
+
+**Response**:
+
+```json
+{
+  "total_tenants": 25,
+  "active_tenants": 23,
+  "total_sessions": 1543,
+  "active_sessions": 87,
+  "completed_sessions": 1203,
+  "abandoned_sessions": 253,
+  "total_messages_today": 5420,
+  "total_goals_created": 3609,
+  "goals_by_type": {
+    "future": 1203,
+    "values": 1203,
+    "actions": 1203
+  },
+  "avg_completion_rate": 78.5,
+  "avg_session_duration_minutes": 42,
+  "avg_score": 8.3,
+  "timestamp": "2025-01-13T14:30:00.000Z"
+}
+
+```
+
+---
+
+### Step 8.2: Admin Views Audit Logs for Sarah's Session
+
+**API Call**:
+
+```bash
+GET /api/admin/audit-logs?session_id=01HN8X9QJ5ABCDEF123456789&limit=50
+
+```
+
+**Request Headers**:
+
+```
+X-Admin-Key: admin_sk_sunrise_abc123xyz789
+
+```
+
+**Response**:
+
+```json
+{
+  "logs": [
+    {
+      "id": "audit_003",
+      "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+      "session_id": "01HN8X9QJ5ABCDEF123456789",
+      "actor": "anonymous",
+      "action": "session.created",
+      "resource_type": "session",
+      "resource_id": "01HN8X9QJ5ABCDEF123456789",
+      "payload": {"source": "web", "device": "desktop"},
+      "status": "success",
+      "ip_address": "***",
+      "user_agent": "Mozilla/5.0...",
+      "created_at": "2025-01-10T09:00:00.000Z"
+    },
+    {
+      "id": "audit_004",
+      "actor": "EMP12345",
+      "action": "session.info_updated",
+      "resource_type": "session",
+      "resource_id": "01HN8X9QJ5ABCDEF123456789",
+      "payload": {"employee_code": "EMP12345", "department": "Engineering"},
+      "changes": {"fields_updated": ["employee_code", "department", "position", "grade", "years_of_service", "age_range", "job_type"]},
+      "status": "success",
+      "created_at": "2025-01-10T09:05:00.000Z"
+    },
+    {
+      "id": "audit_005",
+      "actor": "EMP12345",
+      "action": "goal.scored",
+      "resource_type": "goal",
+      "resource_id": "goal_001",
+      "payload": {"score": 9.2, "meets_threshold": true, "phase": "g4_future", "type": "future"},
+      "status": "success",
+      "created_at": "2025-01-10T09:15:00.000Z"
+    },
+    {
+      "id": "audit_006",
+      "actor": "EMP12345",
+      "action": "goal.scored",
+      "resource_type": "goal",
+      "resource_id": "goal_002",
+      "payload": {"score": 8.7, "meets_threshold": true, "phase": "g6_values", "type": "values"},
+      "status": "success",
+      "created_at": "2025-01-10T09:25:00.000Z"
+    },
+    {
+      "id": "audit_007",
+      "actor": "EMP12345",
+      "action": "goal.scored",
+      "resource_type": "goal",
+      "resource_id": "goal_003",
+      "payload": {"score": 9.0, "meets_threshold": true, "phase": "g8_actions", "type": "actions"},
+      "status": "success",
+      "created_at": "2025-01-10T09:35:00.000Z"
+    },
+    {
+      "id": "audit_008",
+      "actor": "EMP12345",
+      "action": "session.completed",
+      "resource_type": "session",
+      "resource_id": "01HN8X9QJ5ABCDEF123456789",
+      "payload": {"goals_created": 3, "duration_minutes": 45, "avg_score": 8.97},
+      "status": "success",
+      "created_at": "2025-01-10T09:40:00.000Z"
+    },
+    {
+      "id": "audit_009",
+      "actor": "EMP12345",
+      "action": "session.resumed",
+      "resource_type": "session",
+      "resource_id": "01HN8X9QJ5ABCDEF123456789",
+      "payload": {"days_since_completion": 3},
+      "status": "success",
+      "created_at": "2025-01-13T14:30:00.000Z"
+    }
+  ],
+  "total": 7,
+  "page": 1,
+  "per_page": 50
+}
+
+```
+
+---
+
+## Complete API Call Sequence Summary
+
+### For Sarah's Complete Journey:
+
+1. **Health Check**: `GET /api/health`
+2. **Create Session**: `POST /api/session/create`
+3. **Update Info**: `PUT /api/session/{id}/info`
+4. **Chat g4 (Collect)**: `POST /api/chat/g4_future/stream`
+5. **Chat g4 (More details)**: `POST /api/chat/g4_future/stream`
+6. *(Backend auto-refines)*
+7. *(Backend auto-scores)*
+8. **Goal Created**: Internal - saved to database
+9. **Chat g6 (Collect)**: `POST /api/chat/g6_values/stream`
+10. *(Backend auto-refines & scores)*
+11. **Goal Created**: Internal
+12. **Chat g8 (Collect)**: `POST /api/chat/g8_actions/stream`
+13. *(Backend auto-refines & scores)*
+14. **Goal Created**: Internal
+15. **Complete Session**: `POST /api/session/{id}/complete`
+16. **Get All Goals**: `GET /api/goals/session/{id}`
+17. *(3 days later)*
+18. **Resume Session**: `POST /api/session/resume`
+19. **View Goals**: `GET /api/goals/session/{id}`
+
+### For Admin (John):
+
+1. **Tenant Creation**: Database seed script (no API endpoint)
+2. **Upload RAG Docs**: `POST /api/admin/rag/upload/{tenant_id}` (×4 documents)
+3. **View Stats**: `GET /api/admin/stats/overview`
+4. **View Audit Logs**: `GET /api/admin/audit-logs`
+5. **List Tenants**: `GET /api/admin/tenants`
+
+---
+
+## Database State After Sarah's Journey
+
+### sessions table:
+
+```
+id: 01HN8X9QJ5ABCDEF123456789
+tenant_id: 550e8400-e29b-41d4-a716-446655440000
+status: completed
+employee_code: EMP12345
+department: Engineering
+position: Software Engineer
+grade: L4
+years_of_service: 3
+completion_percentage: 100
+created_at: 2025-01-10 09:00:00
+completed_at: 2025-01-10 09:40:00
+last_accessed_at: 2025-01-13 14:30:00
+
+```
+
+### goals table (3 records):
+
+```
+goal_001: future vision (score: 9.2)
+goal_002: values (score: 8.7)
+goal_003: actions (score: 9.0)
+
+```
+
+### messages table (12 records):
+
+```
+6 user messages
+6 assistant messages
+Total tokens used: ~5,000
+
+```
+
+### goal_links table (2 records):
+
+```
+link_001: goal_003 → goal_001 (contributes_to, strength: 10)
+link_002: goal_003 → goal_002 (aligns_with, strength: 9)
+
+```
+
+### audit_logs table (9 records):
+
+```
+tenant.created
+rag.document_uploaded
+session.created
+session.info_updated
+goal.scored (×3)
+session.completed
+session.resumed
+
+```
+
+---
+
+## Testing the Complete Flow
+
+### Setup:
+
+```bash
+# 1. Start the server
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 2. Create test tenant via seed script
+python -m app.database.seed_tenant \\
+  --slug "test-company" \\
+  --name "Test Company" \\
+  --domain "test.petraf.com"
+
+```
+
+### Test Sarah's Flow:
+
+```bash
+# Step 1: Create session
+SESSION_RESPONSE=$(curl -X POST <http://localhost:8000/api/session/create> \\
+  -H "X-Tenant-ID: <tenant-id>")
+
+SESSION_ID=$(echo $SESSION_RESPONSE | jq -r '.session_id')
+RESUME_TOKEN=$(echo $SESSION_RESPONSE | jq -r '.resume_token')
+
+echo "Session: $SESSION_ID"
+echo "Token: $RESUME_TOKEN"
+
+# Step 2: Update info
+curl -X PUT <http://localhost:8000/api/session/$SESSION_ID/info> \\
+  -H "Content-Type: application/json" \\
+  -H "X-Tenant-ID: <tenant-id>" \\
+  -d '{
+    "employee_code": "EMP12345",
+    "department": "Engineering",
+    "position": "Software Engineer",
+    "grade": "L4"
+  }'
+
+# Step 3: Start chat (SSE)
+curl -N <http://localhost:8000/api/chat/g4_future/stream> \\
+  -H "Content-Type: application/json" \\
+  -H "X-Tenant-ID: <tenant-id>" \\
+  -d "{
+    \\"session_id\\": \\"$SESSION_ID\\",
+    \\"message\\": \\"I want to become a senior engineer\\",
+    \\"step\\": \\"collect\\"
+  }"
+
+# Step 4: Get goals
+curl <http://localhost:8000/api/goals/session/$SESSION_ID> \\
+  -H "X-Tenant-ID: <tenant-id>"
+
+# Step 5: Resume session (later)
+curl -X POST <http://localhost:8000/api/session/resume> \\
+  -H "Content-Type: application/json" \\
+  -H "X-Tenant-ID: <tenant-id>" \\
+  -d "{\\"resume_token\\": \\"$RESUME_TOKEN\\"}"
+
+```
+
+---
+
+## Key Takeaways
+
+### Company Setup (Sunrise Corp):
+
+- Admin creates tenant via database seed script (no POST /api/admin/tenant endpoint)
+- Uploads knowledge base documents for RAG
+- System converts docs to vector embeddings
+- Configuration includes prompts, rubrics, thresholds
+
+### Employee Journey (Sarah):
+
+- Creates anonymous session with ULID
+- Fills basic employee information
+- Guided through 3 phases by AI assistant
+- Each response is refined and scored
+- Goals saved only when score ≥ threshold
+- Can resume anytime with secure token
+
+### Backend Processing:
+
+- Multi-tenant isolation at every layer
+- RAG provides context-aware suggestions
+- FSM manages conversation flow
+- OpenAI handles refinement and scoring
+- PII automatically masked in logs
+- Complete audit trail maintained with proper fields: `actor`, `action`, `resource_type`, `resource_id`, `payload`, `changes`, `status`, `ip_address`, `user_agent`
+
+### Security:
+
+- Resume tokens use JWT with HMAC
+- Tokens hashed before storage (SHA-256)
+- Cookie security (HttpOnly, Secure, SameSite)
+- Tenant isolation prevents cross-access
+- Admin operations require API key
+- Audit logs track all critical operations with detailed metadata
+
+---
+
+**End of Documentation**

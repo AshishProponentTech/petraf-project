@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Plus } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 
 interface GoalsScreenProps {
   onNext: () => void;
@@ -35,15 +36,15 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span className="text-green-600 font-medium whitespace-nowrap">1. 基本情報</span>
+              <span className="text-green-600 font-medium whitespace-nowrap">1. Basic Info</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-16 sm:w-24 h-1 bg-blue-500 rounded"></div>
-              <span className="font-medium whitespace-nowrap">2. 方針・計画</span>
+              <span className="font-medium whitespace-nowrap">2. Plans</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-16 sm:w-24 h-1 bg-gray-300 rounded"></div>
-              <span className="text-gray-400 whitespace-nowrap">3. 上位方針</span>
+              <span className="text-gray-400 whitespace-nowrap">3. Company Direction</span>
             </div>
           </div>
         </div>
@@ -53,17 +54,17 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-2xl sm:text-3xl font-bold mb-8 sm:mb-12 text-center text-gray-900">
-            方針・計画
+            Plans
           </h1>
 
           <div className="space-y-8">
             {/* 部門の方針 */}
             <div>
               <Label className="text-sm font-medium mb-3 block">
-                所属部門の今期の方針、目標を入力してください
+                Enter your department's plan and goals for this term
               </Label>
               <Textarea
-                placeholder="この文章はダミーです。テキストの大きさ、行間を確認するために入力しています。"
+                placeholder="This is placeholder text to verify layout and spacing."
                 value={formData.departmentGoal}
                 onChange={(e) => updateFormData("departmentGoal", e.target.value)}
                 className="min-h-[120px] resize-none"
@@ -73,10 +74,10 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
             {/* 全社の方針 */}
             <div>
               <Label className="text-sm font-medium mb-3 block">
-                全社の今期の方針を入力してください
+                Enter the company's plan for this term
               </Label>
               <Textarea
-                placeholder="この文章はダミーです。テキストの大きさ、行間を確認するために入力しています。"
+                placeholder="This is placeholder text to verify layout and spacing."
                 value={formData.companyGoal}
                 onChange={(e) => updateFormData("companyGoal", e.target.value)}
                 className="min-h-[120px] resize-none"
@@ -86,7 +87,7 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
             {/* 上位方針 */}
             <div>
               <Label className="text-sm font-medium mb-3 block">
-                上位方針を一つずつ入れてください
+                Enter higher-level directions one by one
               </Label>
               <div className="space-y-3">
                 {formData.superiorGoals.map((goal: string, index: number) => (
@@ -97,8 +98,8 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
                     <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-medium text-gray-600">
                       {index + 1}
                     </div>
-                    <Input
-                      placeholder="この文章はダミーです。テキストの大きさ、行間を確認するために入力しています。"
+                      <Input
+                        placeholder="This is placeholder text to verify layout and spacing."
                       value={goal}
                       onChange={(e) => updateSuperiorGoal(index, e.target.value)}
                       className="flex-1"
@@ -126,13 +127,19 @@ export default function GoalsScreen({ onNext, onBack, formData, updateFormData }
               variant="outline"
               className="px-12 py-6 rounded-full text-lg font-medium w-full sm:w-auto"
             >
-              戻る
+              Back
             </Button>
             <Button
-              onClick={onNext}
+              onClick={() => {
+                if (!formData.departmentGoal?.trim() || !formData.companyGoal?.trim()) {
+                  toast({ title: 'Missing content', description: 'Please fill department and company plan.' })
+                  return
+                }
+                onNext()
+              }}
               className="bg-black hover:bg-gray-800 text-white px-12 py-6 rounded-full text-lg font-medium w-full sm:w-auto"
             >
-              次へ
+              Next
             </Button>
           </div>
         </div>

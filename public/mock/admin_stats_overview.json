@@ -1,0 +1,20 @@
+{
+  "total_tenants": 25,
+  "active_tenants": 23,
+  "total_sessions": 1543,
+  "active_sessions": 87,
+  "completed_sessions": 1203,
+  "abandoned_sessions": 253,
+  "total_messages_today": 5420,
+  "total_goals_created": 3609,
+  "goals_by_type": {
+    "future": 1203,
+    "values": 1203,
+    "actions": 1203
+  },
+  "avg_completion_rate": 78.5,
+  "avg_session_duration_minutes": 42,
+  "avg_score": 8.3,
+  "timestamp": "2025-01-13T14:30:00.000Z"
+}
+
