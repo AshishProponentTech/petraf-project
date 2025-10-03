@@ -15,36 +15,39 @@ interface BasicInfoScreenProps {
 export default function BasicInfoScreen({ onNext, onBack, formData, updateFormData }: BasicInfoScreenProps) {
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b bg-white px-6 py-4">
-        <div className="flex items-center justify-between max-w-5xl mx-auto">
-          <div className="bg-gray-200 px-6 py-3 rounded text-lg font-bold text-gray-700">
+      {/* Header */}
+      <header className="border-b bg-white px-4 sm:px-6 py-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between max-w-5xl mx-auto gap-4">
+          <div className="bg-gray-200 px-6 py-3 rounded text-lg font-bold text-gray-700 text-center md:text-left">
             LOGO
           </div>
-          <div className="flex items-center gap-8 text-sm">
+          <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <div className="flex items-center gap-2">
-              <div className="w-24 h-1 bg-blue-500 rounded"></div>
-              <span className="font-medium">1. 基本情報</span>
+              <div className="w-16 sm:w-24 h-1 bg-blue-500 rounded"></div>
+              <span className="font-medium whitespace-nowrap">1. 基本情報</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-24 h-1 bg-gray-300 rounded"></div>
-              <span className="text-gray-400">2. 方針・計画</span>
+              <div className="w-16 sm:w-24 h-1 bg-gray-300 rounded"></div>
+              <span className="text-gray-400 whitespace-nowrap">2. 方針・計画</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-24 h-1 bg-gray-300 rounded"></div>
-              <span className="text-gray-400">3. 上位方針</span>
+              <div className="w-16 sm:w-24 h-1 bg-gray-300 rounded"></div>
+              <span className="text-gray-400 whitespace-nowrap">3. 上位方針</span>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 px-6 py-12">
+      {/* Main */}
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold mb-12 text-center text-gray-900">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-8 sm:mb-12 text-center text-gray-900">
             基本情報入力
           </h1>
 
           <div className="space-y-8">
-            <div className="grid grid-cols-2 gap-6">
+            {/* 部門 & 役職 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="department" className="text-sm font-medium mb-2 block">
                   所属部門
@@ -69,7 +72,8 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            {/* 等級 & 勤続年数 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="grade" className="text-sm font-medium mb-2 block">
                   等級
@@ -103,8 +107,9 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
               </div>
             </div>
 
+            {/* 年齢 & 職種 */}
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <Label htmlFor="age" className="text-sm font-medium mb-2 block">
                     年齢
@@ -139,10 +144,11 @@ export default function BasicInfoScreen({ onNext, onBack, formData, updateFormDa
             </div>
           </div>
 
-          <div className="flex justify-end mt-12">
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row justify-end gap-4 mt-12">
             <Button
               onClick={onNext}
-              className="bg-black hover:bg-gray-800 text-white px-12 py-6 rounded-full text-lg font-medium"
+              className="bg-black hover:bg-gray-800 text-white px-12 py-6 rounded-full text-lg font-medium w-full sm:w-auto"
             >
               次へ
             </Button>
