@@ -8,10 +8,12 @@ import GoalsScreen from "@/components/screens/GoalsScreen";
 import ChatScreen from "@/components/screens/ChatScreen";
 import SummaryScreen from "@/components/screens/SummaryScreen";
 import SidebarLayout from "@/components/layout/SidebarLayout";
-import { api } from "@/lib/api";
+import { api } from "@/src/lib/api";
 
 export default function Home() {
+  console.log("[API Setup] Using real API");
   const [step, setStep] = useState(0);
+  const [hasResumeToken, setHasResumeToken] = useState(false);
   const [formData, setFormData] = useState({
     token: "",
     department: "",
@@ -36,13 +38,31 @@ export default function Home() {
         api.resumeSession(token).catch(() => {})
       }
     } catch {}
+    // detect resume token presence for optional TokenScreen
+    try {
+      const urlToken = typeof window !== 'undefined' ? new URL(window.location.href).searchParams.get('resume') : null
+      const localToken = typeof window !== 'undefined' ? localStorage.getItem('petraf_resume_token') : null
+      const cookieToken = (() => {
+        try {
+          return document.cookie.split('; ').find((r) => r.startsWith('resume_token='))?.split('=')[1]
+        } catch { return null }
+      })()
+      if (urlToken || localToken || cookieToken) setHasResumeToken(true)
+    } catch {}
   }, [])
 
   const updateFormData = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const nextStep = () => setStep(prev => prev + 1);
+  const nextStep = () => setStep(prev => {
+    // If moving forward from Intro (0) and user has an existing resume token,
+    // show the TokenScreen (1). Otherwise skip TokenScreen for new users.
+    if (prev === 0) {
+      return hasResumeToken ? 1 : 2
+    }
+    return prev + 1
+  });
   const prevStep = () => setStep(prev => prev - 1);
   const startNew = () => {
     setStep(0);

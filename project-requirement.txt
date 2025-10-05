@@ -1,0 +1,485 @@
+# Project Requirement Doc
+
+# Requirements Definition & System Specification
+
+# Petraf Requirements Definition / System Design Document v0.1
+
+---
+
+## 0. Background & Purpose
+
+- Build an AI agent "Petraf" to support corporate employees in **creating goal settings**.
+- **Multi-tenant** support as prompts, evaluation criteria, and UI elements differ per company (tenant).
+- Anonymous session + resume link allows continuation after mid-session dropout.
+- Conversation progresses **stepwise (collect → refine → score → finalize)**, saving those that meet achievement criteria.
+
+---
+
+# 1. Requirements Definition
+
+## 1.1 Scope
+
+**Included**: Screens 1-8 flow, chat assistance, scoring, RAG reference, anonymous session resume, list display, data storage, multi-tenant, log collection, basic monitoring/operations.
+
+**Excluded**: SSO/member registration, bidirectional integration with internal HR systems (future expansion), multilingual translation support (future), advanced recommendation/automatic KPI generation (future).
+
+## 1.2 Terminology
+
+- Tenant: User group per company unit. Identified by `tenant_id`.
+- Session: Identifies one continuous use by an anonymous user. `session_id(ULID)`.
+- Resume Token: Token with signature + expiration. Embedded in URL. Stored as hash in DB.
+- FSM: Finite State Machine. Application-led stepwise progression control.
+
+## 1.3 User Stories (Primary)
+
+1. As an employee, start from screen 1, read explanation → "Start" to input basic info (screen 2) → input policy (screen 3) → refine 3-year vision/current role via chat (screen 4) → theme goals/KPIs/current status/alignment (screen 6) → challenges/actions (screen 8) → review in list.
+2. Want to resume from the same state via resume link/token even after mid-session dropout.
+3. Want refinement/scoring based on company-specific policies and evaluation criteria.
+4. HR/managers want to export/view finalized deliverables (future).
+
+## 1.4 Screen Requirements (Features)
+
+See Figma link below:
+
+[https://www.figma.com/design/qiRO6IzCQnoRx9BHY53OO7/-内部-petraf_ワイヤー?node-id=1-68&t=LYdGingi8uHJ447V-1](https://www.figma.com/design/qiRO6IzCQnoRx9BHY53OO7/-%E5%86%85%E9%83%A8-petraf_%E3%83%AF%E3%82%A4%E3%83%A4%E3%83%BC?node-id=1-68&t=LYdGingi8uHJ447V-1)
+
+### Screen 1: Landing
+
+- First time: Explanation + "Start".
+- Second time onwards: Resume URL/token input → "Continue".
+- Persistent header: Last saved time, copy resume link.
+
+### Screen 2: Basic Information
+
+- Collect: Department, position, grade, years of service (selection), age (selection/hideable), job type.
+- Tenant settings control display of age/years of service.
+
+### Screen 3: Policy & Plans
+
+- Input: Department current term policy/goals, company-wide current term policy, higher-level policies (3-6 items).
+
+### Screen 4: 3-Year Vision & Current Role (Chat)
+
+- Flow: Collect → refine → score (JSON) → proceed to next when criteria met.
+- Scoring is on 10-point scale. Threshold is tenant setting (initial 7).
+- **Finalize and save** when score meets or exceeds threshold (with version control).
+
+### Screen 5: Cover (Theme Introduction)
+
+- Text guidance. Proceed to next.
+
+### Screen 6: Theme Setting
+
+- Collect: Current term themes (multiple), goals/achievement criteria per theme, current level.
+- Alignment check with higher-level policies (RAG + rules).
+- **Difficulty indication (low/appropriate/high + reason)** based on position/grade.
+
+### Screen 7: Short Break
+
+- Display message → continue.
+
+### Screen 8: Challenges & Actions (Chat)
+
+1. Expected challenges → refine → score → criteria met.
+2. Actions → refine → score → criteria met.
+- Return to screen 5 per theme and repeat.
+
+### List Screen
+
+- Display only latest version with finalized save (`is_final=true`). Diff history review (future).
+
+## 1.5 Non-Functional Requirements
+
+- **Performance/SLO**: Streaming start P50<2.5s, P95<6s. RAG search <300ms.
+- **Availability**: 99.9%/month (production). RDS Multi-AZ.
+- **Scalability**: LLM calls smoothed via queue, tenant-specific rate limits.
+- **Security**: TLS, Cookie httpOnly/Secure, RLS (if possible), S3/RDS encryption, KMS, least privilege.
+- **Privacy**: PII minimization, masking before LLM input, retention period (PII 90d/non-PII 365d guideline).
+- **Audit**: Important operations recorded in `audit_logs`.
+- **Observability**: OpenTelemetry, dashboard (tokens, latency, score achievement rate).
+
+## 1.6 Constraints & Assumptions
+
+- No member registration. Anonymous session + resume token.
+- Cloud: AWS recommended (GCP acceptable).
+- LLM: OpenAI (conversation/scoring). Model can be fixed per tenant.
+
+## 1.7 Acceptance Criteria (Examples)
+
+- Can resume from **previous state** via resume URL.
+- When scoring JSON is malformed, it's not saved (guide to re-question).
+- Different rubrics/display controls applied for tenants A/B.
+- Conversation logs (masked) reach log infrastructure and searchable via Athena.
+
+---
+
+# 2. System Design Document
+
+## 2.1 Overall Architecture
+
+- **Frontend**: Next.js (React). LLM streaming via SSE.
+- **BFF/API**: NestJS (Node). Tenant resolution, FSM, save TX, audit, rate limiting.
+- **Orchestrator**: Python + LangGraph (lightweight adoption: state transition only).
+- **LLM**: OpenAI (gpt-4o series). Scoring uses same fixed model.
+- **RDB**: RDS for PostgreSQL + pgvector.
+- **Cache/Session**: ElastiCache Redis.
+- **Storage**: S3 (deliverables/logs).
+- **Log Infrastructure**: Outbox → Kinesis Firehose → S3 → Glue/Athena.
+- **IaC**: Terraform.
+
+## 2.2 Component Responsibilities
+
+- Frontend: Input validation (Zod), UI state, resume link management, list display.
+- BFF: Phase API, RAG DAO, scoring JSON validation, transaction save, FSM transition, audit log.
+- Orchestrator: Execute `collect/refine/score` nodes, checkpointer (Redis/Postgres).
+
+## 2.3 Data Model (DDL Summary)
+
+```sql
+-- Tenants
+CREATE TABLE tenants (
+  id UUID PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Configuration
+CREATE TABLE tenant_configs (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id),
+  prompts_json JSONB NOT NULL,
+  scoring_rubric_json JSONB NOT NULL,
+  threshold INT NOT NULL DEFAULT 7,
+  ui_flags_json JSONB NOT NULL,
+  retention_policy JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Sessions
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY, -- ULID
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  resume_token_hash TEXT, -- SHA-256
+  status TEXT NOT NULL DEFAULT 'active',
+  employee_code TEXT NULL,
+  user_agent_hash TEXT,
+  ip_hash TEXT,
+  last_accessed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ
+);
+
+-- Conversation State
+CREATE TABLE conversation_state (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  phase TEXT NOT NULL,
+  step TEXT NOT NULL,
+  llm_call_seq INT NOT NULL DEFAULT 0,
+  short_summary TEXT,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Messages
+CREATE TABLE messages (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  role TEXT NOT NULL, -- user/assistant/system/tool
+  content TEXT NOT NULL,
+  tokens INT,
+  phase TEXT,
+  step TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Goals (objectives/roles/themes/actions)
+CREATE TABLE goals (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  type TEXT NOT NULL, -- future/role/theme/action
+  content TEXT NOT NULL,
+  score INT,
+  version INT NOT NULL DEFAULT 1,
+  is_final BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE goal_links (
+  goal_id BIGINT REFERENCES goals(id) ON DELETE CASCADE,
+  parent_goal_id BIGINT REFERENCES goals(id) ON DELETE CASCADE,
+  type TEXT NOT NULL, -- aligns_with/depends_on
+  PRIMARY KEY (goal_id, parent_goal_id)
+);
+
+-- Audit Logs
+CREATE TABLE audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  session_id TEXT,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RAG Corpus
+CREATE TABLE rag_corpus (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  doc_type TEXT,
+  title TEXT,
+  chunk_text TEXT NOT NULL,
+  embedding VECTOR(1536),
+  meta JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX ON rag_corpus USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX ON rag_corpus (tenant_id);
+
+```
+
+## 2.4 API Design (Excerpt / OpenAPI-style Definition)
+
+- `POST /api/chat/{phase}`
+    - req: `{ sessionId?, resumeToken?, input: string, context?: object }`
+    - res: **SSE**. Delimiter events: `message`, `score`, `transition`, `error`.
+    - Server side: RAG→LLM→JSON Schema validation during scoring→TX save when threshold reached→`transition(nextPhase)`.
+- `POST /api/session/resume`
+    - req: `{ resumeToken: string }`
+    - res: `{ sessionId: string, phase, step, lastSavedAt }`
+- `GET /api/goals/{sessionId}`
+    - Latest version list of finalized saves.
+
+### Scoring JSON Schema (Example)
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["score", "reasons", "suggestions"],
+  "properties": {
+    "score": {"type": "integer", "minimum": 0, "maximum": 10},
+    "reasons": {"type": "string", "maxLength": 1000},
+    "suggestions": {"type": "array", "items": {"type": "string"}, "maxItems": 5}
+  }
+}
+
+```
+
+## 2.5 State Transition (FSM)
+
+### Phase/Step List
+
+- `g4_future_collect` → `g4_future_refine` → `g4_future_score` → (score>=th) → `g4_role_collect` …
+- `g6_theme_collect` → `g6_theme_refine` → `g6_theme_score` → next theme or `g8_action_collect` …
+
+### Transition Conditions
+
+- Basic transition: `score >= threshold(tenant, phase)` → proceed, below→`_refine`.
+- Consecutive low scores (e.g., 3 times) → show help (RAG Tips) → if still NG, escalate to admin (future).
+
+## 2.6 Prompt Design (Template)
+
+- **Collection**: Extract up to 3 questions for missing points. Instruct to avoid abstract terms.
+- **Refinement**: SMART alignment with position/grade/policy (within 300 characters).
+- **Scoring**: Rubric (tenant-specific) fixed in system. **Strict JSON output**.
+
+## 2.7 RAG Design
+
+- Embedding: OpenAI Embeddings (1536 dimensions).
+- Indexing: Chunking (~500-800 characters), meta includes `tenant_id`, `doc_type`, `policy_version`.
+- Search: `top_k=3-5`, cosine similarity, `tenant_id` filter mandatory.
+- Information passed to LLM is **short summary + excerpt** (full text paste not allowed).
+
+## 2.8 Security
+
+- Cookie: httpOnly/Secure/SameSite=Lax.
+- Resume token: Signature (HMAC or JWS), valid 7-14 days, **revocation API** available. DB stores hash.
+- RDS/S3: KMS encryption, VPC internal access, least privilege IAM.
+- PII: Masking before save (age→age range, employee number→tokenization).
+- RLS: Enable PostgreSQL Row Level Security if possible.
+
+## 2.9 Logs/Analysis (Collection Pipeline)
+
+- **Outbox** (app DB) → worker → **Kinesis Firehose** → **S3(NDJSON)** → Glue/Athena.
+- Log items: `tenant_id, session_id, message_id, role, phase, step, content_redacted, rag_doc_ids, prompt_template_version, scoring_rubric_version, tokens, latency_ms, status, score`.
+- Lifecycle: PII 90 days, non-PII 365 days. S3 versioning, Block Public Access.
+
+## 2.10 Scale/Operations
+
+- Rate control: Tenant-specific QPS/TPM settings. Queue (BullMQ/Cloud Tasks).
+- Monitoring: OpenTelemetry→Datadog/Grafana, visualize LLM API failure rate, schema validation failure rate, score achievement rate.
+- Backup: RDS automatic, S3 lifecycle + (if needed) Object Lock.
+
+## 2.11 Test Plan
+
+- Unit: FSM transition, JSON schema validation, DAO.
+- Component: RAG search reproducibility test, scoring output robustness (malformed JSON/English output, etc.).
+- E2E: Full flow screens 1→8, resume token, multi-tenant switching.
+- Evals: Regression with representative samples × rubric. Monitor threshold/output variance.
+
+## 2.12 Release Plan (Example)
+
+- v0.1 PoC: Screen 4 only (3-year vision) / single tenant / minimal RAG.
+- v0.2: Full role/theme/challenge set, resume token, log collection.
+- v0.3: Full multi-tenant, difficulty indication, list, audit.
+- v1.0: Monitoring/backup/SLO finalization, production operations.
+
+## 2.13 Risks & Countermeasures
+
+- Model dependency → Version fixing/prompt management/regression Evals.
+- Cost overrun → Prompt compression, RAG top_k limit, streaming, rate control.
+- Data leakage → Tenant isolation, encryption, minimum permissions.
+- Resume link missharing → Short validity, revocation UI, warning toast, (optional) 2nd PIN.
+
+---
+
+# Appendix
+
+- OpenAPI template, Terraform template, prompt templates to be attached separately.
+- This document is the "design base". Implementation details (thresholds, JSON schema limits) to be finalized during subsequent implementation.
+
+---
+
+## v0.2 Supplement
+
+Points **adopted/integrated** into existing design and **differential updates**
+
+### A. Context Management (Adopted/Integrated)
+
+- **Standardized session context format** clarified:
+    - `sessionId, tenantId, conversationState{ currentScreen, currentPhase, attemptCount, score }`
+    - `baseContext` (summary of screens 2-3 input + original ID reference), `conversationHistory` (**last 5-10 turns**), `completedData` (finalized ID reference)
+- Implementation:
+    - **Short summary + recent history** to LLM, originals referenced via RAG (pgvector).
+    - **Redis** stores hot sessions (TTL), RDB stores authoritative snapshots.
+
+### B. Scoring Specification (Extended)
+
+- **Support weighted rubric (0-100 points). Existing 10-point scale compatible via normalization**. Tenant settings store weights in `scoring_rubric_json`.
+- Added `weights` to JSON Schema example (version control for future A/B testing).
+
+### C. Save Trigger (Clarified)
+
+- UI-side `phaseCompleted` detection is **OK**, but **finalized save is server-side transaction** (frontend only sends event notification).
+- Idempotency key: `session_id + phase + step + llm_call_seq` prevents duplicate saves.
+
+### D. Mid-Session Dropout/Resume (Adjusted)
+
+- Default expiration is **7-14 days**, variable up to **max 30 days** per tenant requirements.
+- Resume URL token uses **signature (JWS/HMAC) + expiration + revocation API**. Encryption (AES) possible but **signature verification sufficient** and lightweight.
+- Optional **IP/UA pinning** and **one-time PIN** available.
+
+### E. Multi-Tenant Implementation (Adopted)
+
+- Router middleware resolves **tenant** from `/:tenant/*` → sets `req.tenant`/`req.tenantConfig`.
+- All DAOs **enforce tenant_id**. PostgreSQL enables RLS (if possible).
+
+### F. Concurrent Access/Real-time (Enhanced)
+
+- **Connection**: SSE default. If bidirectional needed, adopt **Socket.io + Redis Adapter**.
+- **Queue**:
+    - AWS operation: **Amazon SQS** (delay/retry/visibility timeout).
+    - OSS operation: Continue using BullMQ (Redis).
+- **Rate limiting**: Token Bucket per tenant/session implemented at API Gateway or Nginx/Envoy.
+
+### G. Data Model (Reinforced)
+
+- Added to existing DDL:
+    - Composite INDEX on `messages(tenant_id, session_id, created_at)`.
+    - Composite INDEX on `goals(session_id, type, is_final, updated_at)`.
+    - INDEX on `sessions(tenant_id, updated_at)` (searchability).
+- **JSONB storage**: Consolidate variable configs like `tenant_configs.config` into existing `_json` fields to avoid schema spaghetti.
+
+### H. Search/Knowledge (Option Expansion)
+
+- Default is **pgvector**.
+- **Option**: If **full-text/hybrid search** of past quality responses needed, can use **Amazon OpenSearch (k-NN)** in parallel (phased introduction considering cost and operations).
+
+### I. Infrastructure/Delivery (Adopted)
+
+- **Delivery**: CloudFront + S3(SPA) adopted.
+- **Backend**: ECS Fargate (or Cloud Run equivalent).
+- **Edge/Entry**: API Gateway or ALB. Attach WAF to frontend (CloudFront or ALB).
+- **Secrets**: Consolidate in AWS Secrets Manager.
+- **Monitoring**: CloudWatch + X-Ray (distributed tracing) can be used alongside existing OTel.
+
+### J. Security Enhancement
+
+- WAF introduction, KMS encryption (RDS/S3), VPC endpoints (S3/Kinesis/Secrets).
+- Conversation logs collected via **Firehose→S3** in NDJSON, **PII masking** by ingest Lambda.
+
+### K. Performance Optimization
+
+- **API**: Batch calls/async, streaming response default.
+- **Frontend**: Service Worker cache, static assets with long-term cache+hash.
+- **RAG**: `top_k=3-5`, 600-1200 character summary for prompt compression.
+
+### L. Sample/Template Integration
+
+- Provided code samples (chat flow/middleware/compose) attached as **development environment** samples (separate document).
+- Production design follows above AWS managed-first approach.
+
+---
+
+## Change Differentials (Implementation TODO)
+
+1. Add **weighting** to `tenant_configs.scoring_rubric_json`, implement 10-point↔100-point normalization utility.
+2. Consolidate **finalized save trigger** for `/api/chat/:phase` to server side. Frontend only sends event notification.
+3. Apply **additional INDEX** to `sessions`, `messages`, `goals`.
+4. Change resume token to **JWS signature** method (AES encryption optional). Default expiration 14 days, max 30 days as tenant setting.
+5. Add **SQS queue** job consumer to BFF (LLM calls and async formatting).
+6. Add CloudFront/WAF/Secrets Manager/X-Ray to **IaC (Terraform)** definitions.
+7. Implement **PII masking** transformation step in Firehose ingest Lambda.
+
+---
+
+## v0.3 Supplement (Multi-Tenant URL/Domain Design)
+
+**Conclusion**: Standard is subdomain approach (`{tenant}.sample.com`), custom domains (e.g., `goals.company.com`) supported for requesting tenants. Sub-paths expand via **dynamic routing + DB registration**, **certificates/DNS auto-issued**.
+
+### 1) URL Approach
+
+- **Subdomain (Recommended)**: `{tenant}.sample.com` … Easy site isolation per tenant/WAF/rate limit application.
+- **Custom Domain (Optional)**: `goals.company.com` … For branding-focused tenants.
+- **Path approach** (`sample.com/{tenant}/...`) can coexist for internal/debugging use.
+
+### 2) Delivery/Certificate/DNS (AWS)
+
+- **Delivery**: CloudFront → ALB → ECS(Fargate)/API. Maintain Host header.
+- **Certificate**:
+    - Shared domain: ACM wildcard `.sample.com` (us-east-1/CloudFront).
+    - Custom domain: ACM **auto-issue with DNS validation** (create CNAME in Route53).
+- **DNS**:
+    - Shared: CNAME `.sample.com` to CloudFront.
+    - Custom: Guide tenant to `CNAME goals.company.com → tenant-id.sample.com` (or direct CF).
+
+### 3) Application Routing
+
+- **Next.js Middleware**/Edge extracts `tenant_slug` from `req.headers.host`→cache (60-300s)→DB lookup.
+- BFF/API requires `x-tenant-id`. All DAOs enforce `tenant_id` inclusion. RAG also enforces filter via metadata.
+- Unregistered/invalid goes to 404/tenant error page.
+
+### 4) Security/Cookie/CORS
+
+- Cookie is **host-limited** (`Domain` unspecified) + Secure/httpOnly/SameSite=Lax.
+- WAF: Basic rules + rate limiting (QPS/TPM) per tenant host.
+- CORS/CSP: Allow only minimum necessary origins. Minimize wildcards.
+- Reserved slugs: Reserve `www`/`admin`/`api` etc., review look-alike (confusing) names.
+
+### 5) Onboarding Automation (Tenant Provisioner)
+
+1. Create records in `tenants`/`tenant_configs` (initial prompts/thresholds/display settings).
+2. (If needed) ACM request→auto-create Route53 CNAME→validation.
+3. Add to CloudFront Alternate Domain Names→deploy.
+4. Register tenant-scoped secrets in Secrets Manager.
+5. Auto-add monitoring/dashboard rows.
+6. Notify issued URL and usage guide.
+
+### 6) Scale Operation Points
+
+- Monitoring: Always include `host` in access logs for tenant-specific aggregation (Athena/ClickHouse).
+- Rate: Tenant-specific thresholds. Bot/scraping detection (WAF Bot Control).
+- Region expansion (future): Consider CloudFront multi-origin + RDS/vector region splitting based on regional requirements

@@ -11,9 +11,9 @@ export default function UsersPage() {
 
 	useEffect(() => {
 		let cancelled = false
-		fetch('/mock/users.json')
+		fetch('/api/users')
 			.then((res) => {
-				if (!res.ok) throw new Error('Failed to load mock users')
+				if (!res.ok) throw new Error('Failed to load users')
 				return res.json()
 			})
 			.then((data: User[]) => {
@@ -37,7 +37,7 @@ export default function UsersPage() {
 
 	return (
 		<div className="p-6">
-			<h1 className="text-xl font-semibold mb-4">Users (Mock)</h1>
+			<h1 className="text-xl font-semibold mb-4">Users</h1>
 			<ul className="list-disc pl-6 space-y-1">
 				{users.map((u) => (
 					<li key={u.id}>{u.name}</li>
@@ -46,4 +46,7 @@ export default function UsersPage() {
 		</div>
 	)
 }
+
+
+
 

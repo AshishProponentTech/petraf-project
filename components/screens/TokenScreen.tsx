@@ -65,7 +65,11 @@ export default function TokenScreen({ onNext, formData, updateFormData }: TokenS
             type="text"
             placeholder="paste resume token"
             value={formData.token}
-            onChange={(e) => updateFormData("token", e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              console.log("User typed:", value);  
+              updateFormData("token", value);  
+            }}
             className="w-full"
           />
         </div>

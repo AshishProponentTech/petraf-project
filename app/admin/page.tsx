@@ -15,6 +15,15 @@ export default function AdminPage() {
 	const [uploadResult, setUploadResult] = useState<any | null>(null)
 
 	useEffect(() => {
+		// Check if admin is authenticated
+		const adminKey = localStorage.getItem('admin_key')
+		if (!adminKey) {
+			// Redirect to admin login if no key
+			window.location.href = '/admin/login'
+			return
+		}
+
+		// Load real data from API
 		api.adminStats().then(setStats).catch(() => setStats(null))
 		api.adminAuditLogs().then((d: any) => setLogs(d.logs || [])).catch(() => setLogs([]))
 	}, [])
@@ -27,7 +36,20 @@ export default function AdminPage() {
 
 	return (
 		<div className="min-h-screen p-6 space-y-8">
-			<h1 className="text-2xl font-bold">Admin Dashboard (Mock)</h1>
+			<div className="flex justify-between items-center">
+				<div>
+					<h1 className="text-2xl font-bold">Admin Dashboard</h1>
+					<p className="text-gray-600">Manage your organization's goal-setting system</p>
+				</div>
+				<div className="flex gap-2">
+					<Button asChild variant="outline">
+						<a href="/admin/employees">Employee Management</a>
+					</Button>
+					<Button asChild variant="outline">
+						<a href="/admin/sessions">Session Management</a>
+					</Button>
+				</div>
+			</div>
 
 			<section className="bg-white p-4 rounded border">
 				<h2 className="font-semibold mb-3">Overview Stats</h2>
@@ -74,4 +96,7 @@ export default function AdminPage() {
 		</div>
 	)
 }
+
+
+
 

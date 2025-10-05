@@ -1,0 +1,266 @@
+petraf-backend
+ 1.0.0 
+OAS 3.1
+/openapi.json
+AI-powered goal-setting assistant for corporate employees
+
+default
+
+
+GET
+/
+Root
+
+health
+
+
+GET
+/api/health
+Health Check
+
+
+GET
+/api/ready
+Readiness Check
+
+
+GET
+/api/live
+Liveness Check
+
+
+GET
+/api/metrics
+Metrics
+
+
+GET
+/api/info
+Application Info
+
+session
+
+
+POST
+/api/session/create
+Create Session
+
+
+POST
+/api/session/resume
+Resume Session
+
+
+GET
+/api/session/{session_id}
+Get Session
+
+
+PUT
+/api/session/{session_id}/info
+Update Session Info
+
+
+GET
+/api/session/{session_id}/state
+Get Conversation State
+
+
+GET
+/api/session/{session_id}/fsm
+Get Fsm State
+
+
+POST
+/api/session/{session_id}/complete
+Complete Session
+
+
+POST
+/api/session/{session_id}/advance-step
+Advance Step
+
+chat
+
+
+POST
+/api/chat/{phase}/stream
+Stream Chat
+
+
+POST
+/api/chat/{phase}
+Chat
+
+
+POST
+/api/chat/history
+Get Conversation History
+
+
+GET
+/api/chat/stats/{session_id}
+Get Message Stats
+
+goals
+
+
+POST
+/api/goals/create
+Create Goal
+
+
+GET
+/api/goals/session/{session_id}
+Get Session Goals
+
+
+GET
+/api/goals/session/{session_id}/summary
+Get Goal Summary
+
+
+GET
+/api/goals/{goal_id}
+Get Goal
+
+
+PUT
+/api/goals/{goal_id}
+Update Goal
+
+
+DELETE
+/api/goals/{goal_id}
+Delete Goal
+
+
+POST
+/api/goals/link
+Create Goal Link
+
+admin
+
+
+GET
+/api/admin/tenants
+Get Tenants
+
+
+GET
+/api/admin/tenants/{tenant_id}/config
+Get Tenant Config
+
+
+PUT
+/api/admin/tenants/{tenant_id}/config
+Update Tenant Config
+
+
+GET
+/api/admin/stats/overview
+Get System Stats
+
+
+GET
+/api/admin/stats/tenant/{tenant_id}
+Get Tenant Stats
+
+
+GET
+/api/admin/audit-logs
+Get Audit Logs
+
+
+POST
+/api/admin/rag/upload/{tenant_id}
+Upload Rag Document
+
+
+GET
+/api/admin/queue/health
+Get Queue Health
+
+
+GET
+/api/admin/queue/stats
+Get Queue Stats
+
+
+GET
+/api/admin/queue/workers
+Get Worker Info
+
+
+GET
+/api/admin/queue/failed
+Get Failed Jobs
+
+
+GET
+/api/admin/queue/job/{job_id}
+Get Job Status
+
+
+DELETE
+/api/admin/queue/{queue_name}/purge
+Purge Queue
+
+token
+
+
+POST
+/api/token/validate
+Validate Token
+
+
+POST
+/api/token/refresh
+Refresh Token
+
+
+POST
+/api/token/revoke
+Revoke Token
+
+
+GET
+/api/token/verify-api-token
+Verify Api Token
+
+
+Schemas
+AuditLogEntryExpand allobject
+ChatMessageExpand allobject
+ChatRequestExpand allobject
+ChatResponseExpand allobject
+ConversationHistoryRequestExpand allobject
+ConversationHistoryResponseExpand allobject
+ConversationStateResponseExpand allobject
+CreateGoalRequestExpand allobject
+CreateSessionRequestExpand allobject
+CreateSessionResponseExpand allobject
+FSMStateResponseExpand allobject
+GoalLinkRequestExpand allobject
+GoalLinkResponseExpand allobject
+GoalResponseExpand allobject
+GoalSummaryResponseExpand allobject
+GoalTypeExpand allstring
+HTTPValidationErrorExpand allobject
+HealthCheckResponseExpand allobject
+MessageRoleExpand allstring
+MessageStatsResponseExpand allobject
+ResumeSessionRequestExpand allobject
+SessionGoalsResponseExpand allobject
+SessionResponseExpand allobject
+SessionStatusExpand allstring
+SuccessResponseExpand allobject
+TokenRefreshRequestExpand allobject
+TokenRefreshResponseExpand allobject
+TokenRevokeRequestExpand allobject
+TokenRevokeResponseExpand allobject
+TokenValidateRequestExpand allobject
+TokenValidateResponseExpand allobject
+UpdateGoalRequestExpand allobject
+UpdateSessionInfoRequestExpand allobject
+ValidationErrorExpand allobject

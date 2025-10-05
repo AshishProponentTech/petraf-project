@@ -1,0 +1,354 @@
+# API Document
+
+## 🔄 **Complete API Test Sequence for Tenant: TechCorp**
+
+**Tenant ID**: `1ee81edb-65f5-4345-bfd4-62e56a2b3927`
+
+---
+
+### **Step 1: Create Session (Screen 1)**
+
+```bash
+curl -X POST "http://localhost:8000/api/session/create" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{}'
+
+```
+
+**Expected Response**:
+
+```json
+{
+  "session_id": "01K6XXXXXXXXXXXXXXXXXXXX",
+  "resume_token": "eyJhbGci...",
+  "expires_at": "2025-10-18T...",
+  "status": "active"
+}
+
+```
+
+**📝 Save**: Copy the `session_id` - you'll need it for all subsequent calls!
+
+---
+
+### **Step 2: Update Employee Info (Screen 2)**
+
+**Replace `SESSION_ID` with your actual session_id from Step 1**
+
+```bash
+curl -X PUT "http://localhost:8000/api/session/SESSION_ID/info" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "employee_code": "EMP-2024-1234",
+    "department": "Engineering - Platform Team",
+    "position": "Software Engineer",
+    "grade": "3",
+    "years_of_service": 6,
+    "age_range": "30-34",
+    "job_type": "Full-time Engineer"
+  }'
+
+```
+
+**Expected**: Session info updated, phase auto-advances to `g3_policy`
+
+---
+
+### **Step 3: Verify Current Phase**
+
+```bash
+curl "http://localhost:8000/api/session/SESSION_ID/state" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927"
+
+```
+
+**Expected Response**:
+
+```json
+{
+  "session_id": "SESSION_ID",
+  "phase": "g3_policy",
+  "step": "collect",
+  "retry_count": 0,
+  "consecutive_low_scores": 0,
+  "last_score": null
+}
+
+```
+
+✅ Confirm it's at `g3_policy/collect`
+
+---
+
+### **Step 4: Input Policies (Screen 3)**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g3_policy/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Our company policies: 1) Digital transformation and cloud migration by Q3 2025. 2) Platform team goal: 99.9% uptime. 3) Engineering excellence: 100% code review coverage and automated CI/CD.",
+    "phase": "g3_policy",
+    "step": "collect"
+  }'
+
+```
+
+**Expected**: SSE stream with LLM response, then phase advances to `g4_future`
+
+---
+
+### **Step 5: Verify Phase Advanced to g4_future**
+
+```bash
+curl "http://localhost:8000/api/session/SESSION_ID/state" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927"
+
+```
+
+**Expected**:
+
+```json
+{
+  "phase": "g4_future",
+  "step": "collect"
+}
+
+```
+
+---
+
+### **Step 6: 3-Year Vision - Collect (Screen 4a)**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_future/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "In 3 years, I want to become a Staff Engineer (L5) leading the platform architecture team, designing scalable distributed systems that handle millions of users, and mentoring 3-5 junior engineers.",
+    "phase": "g4_future",
+    "step": "collect"
+  }'
+
+```
+
+**Expected**: SSE stream with LLM asking clarifying questions, step advances to `refine`
+
+---
+
+### **Step 7: 3-Year Vision - Refine**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_future/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "I want to specialize in Kubernetes and distributed systems. I will lead architecture reviews, mentor engineers, and ensure our systems handle 5M+ daily users with 99.99% uptime.",
+    "phase": "g4_future",
+    "step": "refine"
+  }'
+
+```
+
+**Expected**: LLM refines your vision into SMART format, step advances to `score`
+
+---
+
+### **Step 8: 3-Year Vision - Confirm & Score**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_future/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Yes, that captures my vision perfectly!",
+    "phase": "g4_future",
+    "step": "score"
+  }'
+
+```
+
+**Expected**:
+
+- LLM scores your goal (0-10 scale)
+- If score ≥ 7: Goal is finalized and saved
+- Phase advances to `g4_role` (current role)
+
+---
+
+### **Step 9: Current Role - Collect (Screen 4b)**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_role/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Currently, I am a mid-level Software Engineer (L3) working on platform services. I have 2 years of Kubernetes experience, contribute to microservice development, and mentor 1 junior developer.",
+    "phase": "g4_role",
+    "step": "collect"
+  }'
+
+```
+
+---
+
+### **Step 10: Current Role - Refine**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_role/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "I work on improving deployment pipelines, participate in architecture discussions, and am learning advanced Kubernetes patterns.",
+    "phase": "g4_role",
+    "step": "refine"
+  }'
+
+```
+
+---
+
+### **Step 11: Current Role - Confirm & Score**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g4_role/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Yes, that describes my current role accurately.",
+    "phase": "g4_role",
+    "step": "score"
+  }'
+
+```
+
+**Expected**: Role finalized, advances to `g6_theme` (skips g5_cover which is just text)
+
+---
+
+### **Step 12: Theme 1 - Collect (Screen 6)**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g6_theme/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Theme 1: System Reliability. Goal: Achieve 99.9% uptime. KPI: Reduce incidents from 8/month to 2/month. Current: 99.5% uptime, 8 incidents/month. This aligns with our platform team goals.",
+    "phase": "g6_theme",
+    "step": "collect",
+    "metadata": {"theme_number": 1}
+  }'
+
+```
+
+**Expected**: Scored, difficulty assessed, finalized
+
+---
+
+### **Step 13: Theme 2 - Collect**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g6_theme/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Theme 2: Deployment Efficiency. Goal: Reduce deployment time from 45min to 15min. KPI: 80% automation coverage. Current: 45min average, 30% automated.",
+    "phase": "g6_theme",
+    "step": "collect",
+    "metadata": {"theme_number": 2}
+  }'
+
+```
+
+---
+
+### **Step 14: Theme 3 - Collect**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g6_theme/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Theme 3: Team Growth. Goal: Mentor 3 engineers successfully. KPI: 12 knowledge-sharing sessions. Current: Mentoring 1 engineer informally.",
+    "phase": "g6_theme",
+    "step": "collect",
+    "metadata": {"theme_number": 3}
+  }'
+
+```
+
+**Expected**: After theme 3, advances to `g8_action`
+
+---
+
+### **Step 15: Challenges for Theme 1 (Screen 8)**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g8_action/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Challenges: Legacy monitoring gaps, manual incident response, insufficient alerting, SRE knowledge gaps, resistance to process changes.",
+    "phase": "g8_action",
+    "step": "collect",
+    "metadata": {"theme_number": 1, "action_type": "challenges"}
+  }'
+
+```
+
+---
+
+### **Step 16: Actions for Theme 1**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/chat/g8_action/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \
+  -d '{
+    "session_id": "SESSION_ID",
+    "message": "Actions: Q1: Implement Prometheus/Grafana monitoring. Q2: Set up PagerDuty alerting. Q2: Create runbooks for top 10 incidents. Q3: Complete SRE certification. Q4: Achieve 99.9% uptime.",
+    "phase": "g8_action",
+    "step": "collect",
+    "metadata": {"theme_number": 1, "action_type": "actions"}
+  }'
+
+```
+
+---
+
+### **Step 17-20: Repeat for Themes 2 & 3**
+
+Repeat challenges + actions for themes 2 and 3...
+
+---
+
+### **Step 21: Get All Finalized Goals (List Screen)**
+
+```bash
+curl "http://localhost:8000/api/goals/session/SESSION_ID" \
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927"
+
+```
+
+**Expected**: All finalized goals with `is_final: true`
+
+---
+
+## 📋 **Quick Reference**
+
+Replace `SESSION_ID` with your actual session ID in all commands above.
+
+**Start testing now!** 🚀

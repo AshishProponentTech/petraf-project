@@ -1,0 +1,1506 @@
+# Frontend Document
+
+# Petraf Frontend Integration Guide
+
+## 📋 Document Overview
+
+This document provides comprehensive guidance for frontend developers integrating with the Petraf Goal-Setting Assistant backend API. It includes complete screen flow, API mappings, UI specifications, and implementation examples.
+
+**Last Updated**: October 4, 2025
+**Target Audience**: Frontend Developers
+**Backend API Version**: v1.0
+
+---
+
+## 🎯 Application Overview
+
+**Petraf** is an AI-powered goal-setting assistant that helps employees create SMART goals aligned with company policies and strategic objectives. The application uses a conversational AI interface to guide employees through a structured goal-setting process.
+
+### **Key Features**
+
+- Anonymous sessions with resume token support
+- Multi-tenant architecture (one instance serves multiple companies)
+- FSM-driven conversation flow with automatic scoring
+- Server-Sent Events (SSE) for real-time AI responses
+- Automatic goal validation and refinement
+
+---
+
+## 📱 Complete Screen Flow
+
+### **Screen Sequence**
+
+```
+1. Landing Page (Get Started)
+    ↓
+2. Resume Session (Optional - if user has token)
+    ↓
+3. Basic Information (Form)
+    ↓
+4. Plans (Form with 3 sections)
+    ↓
+5. Chat Interface - g4 Future (3-Year Vision + Current Role)
+    ↓
+6. Cover Screen (Theme Introduction - text only)
+    ↓
+7. Chat Interface - g6 Values (Values + Themes)
+    ↓
+8. Short Break (Text screen)
+    ↓
+9. Chat Interface - g8 Actions (Challenges + Actions)
+    ↓
+10. Goals List (Final review)
+
+```
+
+---
+
+## 🗺️ Screen-to-Backend Mapping
+
+| Screen # | Screen Name | UI Type | Backend Endpoint | Backend Phase | Auto-Transition |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Landing Page | Static | `POST /api/session/create` | N/A | → g2_basic_info |
+| 2 | Resume Session | Form | `POST /api/session/resume` | N/A | → current phase |
+| 3 | Basic Information | Form | `PUT /api/session/{id}/info` | g2_basic_info | → g3_policy |
+| 4 | Plans | Form | `POST /api/chat/g3_policy/stream` | g3_policy | → g4_future |
+| 5 | g4 Future (Chat) | Chat | `POST /api/chat/g4_future/stream` | g4_future | → g4_role |
+| 5 | g4 Role (Chat) | Chat | `POST /api/chat/g4_role/stream` | g4_role | → g6_values |
+| 6 | Cover (Theme Intro) | Static | None | N/A | Manual → g6 |
+| 7 | g6 Values (Chat) | Chat | `POST /api/chat/g6_values/stream` | g6_values | → g6_themes |
+| 7 | g6 Themes (Chat) | Chat | `POST /api/chat/g6_themes/stream` | g6_themes | → g8_focus |
+| 8 | Short Break | Static | None | N/A | Manual → g8 |
+| 9 | g8 Focus (Chat) | Chat | `POST /api/chat/g8_focus/stream` | g8_focus | → g8_actions |
+| 9 | g8 Actions (Chat) | Chat | `POST /api/chat/g8_actions/stream` | g8_actions | → completed |
+| 10 | Goals List | List | `GET /api/goals/session/{id}` | N/A | N/A |
+
+---
+
+## 📄 Detailed Screen Specifications
+
+### **Screen 1: Landing Page**
+
+**Purpose**: Introduction and session initialization
+
+**UI Elements**:
+
+- Application title: "Goal-Setting Assistant"
+- Description text explaining the flow
+- **"Get Started"** button (primary CTA)
+
+**API Call**:
+
+```jsx
+POST /api/session/create
+Headers:
+  Content-Type: application/json
+  X-Tenant-ID: {tenant_id}
+Body: {}
+
+Response:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "resume_token": "eyJhbGc...",
+  "tenant_id": "1ee81edb-65f5-4345-bfd4-62e56a2b3927",
+  "status": "active",
+  "created_at": "2025-10-04T09:00:00.000Z",
+  "expires_at": "2025-10-18T09:00:00.000Z"
+}
+
+```
+
+**Next Action**:
+
+- Save `session_id` to state/localStorage
+- Save `resume_token` for session recovery
+- Navigate to Screen 3 (Basic Information)
+
+---
+
+### **Screen 2: Resume Session (Alternative Landing)**
+
+**Purpose**: Allow returning users to continue their session
+
+**UI Elements**:
+
+- Title: "Goal-Setting Assistant"
+- Description: "Continue from where you left off"
+- **Token** input field (text input)
+- **"Continue"** button
+
+**API Call**:
+
+```jsx
+POST /api/session/resume
+Headers:
+  Content-Type: application/json
+  X-Tenant-ID: {tenant_id}
+Body:
+{
+  "resume_token": "eyJhbGc..."
+}
+
+Response:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "phase": "g4_future",
+  "step": "collect",
+  "last_saved_at": "2025-10-04T09:15:00.000Z"
+}
+
+```
+
+**Next Action**:
+
+- Save `session_id` to state
+- Navigate to appropriate screen based on `phase` returned
+- If phase = "g2_basic_info" → Screen 3
+- If phase = "g3_policy" → Screen 4
+- If phase starts with "g4" → Screen 5 (Chat - g4 Future tab)
+- If phase starts with "g6" → Screen 7 (Chat - g6 Values tab)
+- If phase starts with "g8" → Screen 9 (Chat - g8 Actions tab)
+
+---
+
+### **Screen 3: Basic Information**
+
+**Purpose**: Collect employee profile information
+
+**Progress Indicator**:
+
+- **1. Basic Info** (active) → 2. Plans → 3. Company Direction
+
+**Form Fields**:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| Department | Text input | Yes | 1-100 characters |
+| Position | Text input | Yes | 1-100 characters |
+| Grade | Text input | Yes | 1-50 characters |
+| Years of Service | Dropdown | Yes | Options: 0-1, 1-2, 2-3, 3-5, 5-10, 10+ |
+| Age Range | Dropdown | Optional* | Options: 20-24, 25-29, 30-34, 35-39, 40-44, 45-49, 50+ |
+| Job Type | Text input | Yes | 1-50 characters |
+- Age Range field visibility controlled by tenant settings (show dashed border if optional)
+
+**Buttons**:
+
+- **"Next"** button (bottom-right, primary)
+
+**API Call**:
+
+```jsx
+PUT /api/session/{session_id}/info
+Headers:
+  Content-Type: application/json
+  X-Tenant-ID: {tenant_id}
+Body:
+{
+  "employee_code": "EMP-2025-1001", // Optional
+  "department": "Engineering - Platform Team",
+  "position": "Senior Software Engineer",
+  "grade": "L4",
+  "years_of_service": 4,
+  "age_range": "30-34", // Optional
+  "job_type": "Full-time"
+}
+
+Response:
+{
+  "id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "tenant_id": "1ee81edb-65f5-4345-bfd4-62e56a2b3927",
+  "employee_code": "EMP-2025-1001",
+  "department": "Engineering - Platform Team",
+  "position": "Senior Software Engineer",
+  "grade": "L4",
+  "completion_percentage": 10,
+  "updated_at": "2025-10-04T09:01:00.000Z"
+}
+
+```
+
+**Automatic Backend Behavior**:
+
+- ✅ Backend automatically transitions from `g2_basic_info` → `g3_policy`
+- No additional frontend action needed
+
+**Next Action**:
+
+- Navigate to Screen 4 (Plans)
+
+---
+
+### **Screen 4: Plans**
+
+**Purpose**: Collect company and department policies/goals for context
+
+**Progress Indicator**:
+
+- 
+    1. Basic Info ✓ → **2. Plans** (active) → 3. Company Direction
+
+**Form Fields** (3 sections):
+
+### **Section 1: Department Plan**
+
+- **Label**: "Enter your department's plan and goals for this term"
+- **Input**: Large textarea (4-6 rows)
+- **Placeholder**: "This is placeholder text to verify layout and spacing."
+- **Example Content**:
+    
+    ```
+    Engineering Platform Team 2025 Goals:
+    - Achieve 99.9% uptime SLA for all production services
+    - Complete Kubernetes migration for 80% of services by Q4
+    - Reduce deployment time from 2 hours to 15 minutes
+    - Implement automated rollback mechanism
+    
+    ```
+    
+
+### **Section 2: Company Plan**
+
+- **Label**: "Enter the company's plan for this term"
+- **Input**: Large textarea (4-6 rows)
+- **Placeholder**: "This is placeholder text to verify layout and spacing."
+- **Example Content**:
+    
+    ```
+    TechCorp 2025 Strategic Goals:
+    - Achieve 25% revenue growth year-over-year
+    - Expand to 3 new international markets (APAC, EU, LATAM)
+    - Launch AI-powered product suite by Q3
+    - Improve customer NPS score from 45 to 60
+    
+    ```
+    
+
+### **Section 3: Higher-Level Directions** (Company Direction)
+
+- **Label**: "Enter higher-level directions one by one"
+- **Input**: Dynamic list with **+** button to add more items
+- **Layout**:
+    - [1] [Text input field] [+ button]
+    - Click + to add item [2], [3], etc.
+- **Example Items**:
+    
+    ```
+    [1] Digital-first transformation across all business units
+    [2] Customer-centric innovation and rapid iteration
+    [3] Build world-class engineering culture
+    [4] Sustainable growth with operational excellence
+    [5] Strengthen security and compliance posture
+    
+    ```
+    
+
+**Buttons**:
+
+- **"Back"** button (bottom-left, secondary)
+- **"Next"** button (bottom-right, primary)
+
+**API Call**:
+
+```jsx
+POST /api/chat/g3_policy/stream
+Headers:
+  Content-Type: application/json
+  X-Tenant-ID: {tenant_id}
+Body:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "message": "Department Plan:\\n[field1 content]\\n\\nCompany Plan:\\n[field2 content]\\n\\nHigher-Level Directions:\\n1. [direction1]\\n2. [direction2]\\n3. [direction3]",
+  "phase": "g3_policy",
+  "step": "collect"
+}
+
+Response (SSE Stream):
+data: event: message
+data: data: {"content": "Thank you for sharing...", "phase": "g3_policy", "step": "collect"}
+
+data: event: phase_transition
+data: data: {"from_phase": "g3_policy", "to_phase": "g4_future", "message": "Policy collection complete. Moving to 3-year vision discussion."}
+
+data: event: complete
+data: data: {"phase": "g3_policy", "step": "collect"}
+
+```
+
+**Automatic Backend Behavior**:
+
+- ✅ Backend automatically transitions from `g3_policy` → `g4_future`
+- Frontend should listen for `phase_transition` event
+
+**Next Action**:
+
+- Navigate to Screen 5 (Chat Interface - g4 Future tab)
+
+---
+
+### **Screen 5: Chat Interface (g4 Future & g4 Role)**
+
+**Purpose**: AI-guided conversation for 3-year vision and current role goals
+
+**Layout**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [LOGO]                                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [g4 Future] [g6 Values] [g8 Actions]  ← Tab Navigation        │
+│                                                                 │
+│  Tell us about your future vision                              │
+│  Helper text explaining what to do                             │
+│                                                                 │
+│  ┌───────────────────────────────┐  ┌──────────────────────┐  │
+│  │ Chat Area                     │  │ ■ Basic Info         │  │
+│  │                               │  │ Department: cse      │  │
+│  │ ■ Tell me about your vision  │  │ Position: xyz        │  │
+│  │   in 2-3 years.               │  │ Grade: sdds          │  │
+│  │   [📋] [🔄]                   │  │ Years: 2年            │  │
+│  │                               │  │ Age Range:           │  │
+│  │ Example: "How will you       │  │ Job Type: dsds       │  │
+│  │ contribute to the company?"   │  │                      │  │
+│  │                               │  │ Your 3-year vision   │  │
+│  │                               │  │ ...                  │  │
+│  │                               │  │ [→]                  │  │
+│  └───────────────────────────────┘  └──────────────────────┘  │
+│                                                                 │
+│  [Type your message...]                              [Send ⬆]  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+```
+
+**Tab Structure**:
+
+- **g4 Future** (active) - 3-Year Vision & Current Role
+- **g6 Values** - Professional Values & Themes
+- **g8 Actions** - Challenges & Action Plans
+
+**Right Sidebar** (Collapsible):
+
+- **Basic Info** panel showing:
+    - Department, Position, Grade, Years of Service, Age Range, Job Type
+- **Goal Summary** (dynamically populated):
+    - "Your 3-year vision" with expand arrow (→)
+    - Updates as user completes phases
+
+**Chat Area Components**:
+
+1. **AI Messages**:
+    - Bullet point (■) prefix
+    - Copy button (📋)
+    - Regenerate button (🔄)
+2. **User Messages**:
+    - Right-aligned
+    - Different background color
+3. **Example Prompts** (optional):
+    - Show placeholder examples to guide user
+
+**Input Area**:
+
+- Text input: "Type your message..."
+- Send button (⬆ icon)
+
+---
+
+### **Screen 5: FSM Flow (collect → refine → score → finalize)**
+
+Each chat phase (g4_future, g4_role, g6_values, g6_themes, g8_focus, g8_actions) follows the same **4-step FSM flow**:
+
+```
+┌──────────┐    ┌────────┐    ┌───────┐    ┌──────────┐
+│ collect  │ →  │ refine │ →  │ score │ →  │ finalize │
+└──────────┘    └────────┘    └───────┘    └──────────┘
+     ↓              ↓             ↓             ↓
+   Chat          Chat        Automatic     Automatic
+ (Manual)      (Manual)     (Server)      (Server)
+
+```
+
+### **Step 1: Collect** (User-driven)
+
+**Frontend Actions**:
+
+```jsx
+// User types message and clicks send
+POST /api/chat/g4_future/stream
+Body:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "message": "In 3 years, I want to become a Staff Engineer leading the platform team...",
+  "phase": "g4_future",
+  "step": "collect"
+}
+
+// Listen for SSE events
+Events:
+- message: AI response (display in chat)
+- complete: Message finished
+
+```
+
+**When to advance**: After user has provided enough information (user clicks "Next" or "Refine" button)
+
+### **Step 2: Advance to Refine** (Frontend-controlled)
+
+**Frontend Actions**:
+
+```jsx
+// User clicks "I'm ready to refine" button
+POST /api/session/{session_id}/advance-step
+Headers:
+  X-Tenant-ID: {tenant_id}
+
+Response:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "phase": "g4_future",
+  "step": "refine",  // ← Changed from "collect"
+  "retry_count": 0,
+  "last_score": null
+}
+
+```
+
+**Next**: Continue to refine step
+
+### **Step 3: Refine** (User-driven)
+
+**Frontend Actions**:
+
+```jsx
+// User provides more specific, measurable content
+POST /api/chat/g4_future/stream
+Body:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "message": "In 3 years, I want to become a Certified Kubernetes Administrator (CKA) and deploy a production-grade K8s cluster handling 5M+ daily users with 99.99% uptime by Q4 2025...",
+  "phase": "g4_future",
+  "step": "refine"
+}
+
+// Listen for SSE events
+Events:
+- message: AI response with refinement suggestions
+- complete: Message finished
+
+```
+
+**When to advance**: After refinement is complete (user clicks "Submit for scoring" button)
+
+### **Step 4: Advance to Score** (Frontend-controlled)
+
+**Frontend Actions**:
+
+```jsx
+// User clicks "Submit for scoring" button
+POST /api/session/{session_id}/advance-step
+
+Response:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "phase": "g4_future",
+  "step": "score",  // ← Changed from "refine"
+}
+
+```
+
+**Next**: Trigger automatic scoring
+
+### **Step 5: Score** (Automatic - Server-driven)
+
+**Frontend Actions**:
+
+```jsx
+// Trigger automatic scoring
+POST /api/chat/g4_future/stream
+Body:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "message": "score",  // Can be any message
+  "phase": "g4_future",
+  "step": "score"
+}
+
+// Listen for SSE events
+Events:
+- message: "Evaluating your response..."
+- score: {
+    "score": 8,
+    "threshold": 7,
+    "reasons": "The vision is clear and well-defined...",
+    "suggestions": ["Add more specifics...", "Include timeline..."],
+    "passed": true
+  }
+- step_transition: {
+    "from_step": "score",
+    "to_step": "finalize",  // If score >= threshold
+    "message": "Excellent! Your score is 8/10. Finalizing your goal..."
+  }
+- complete: Scoring finished
+
+```
+
+**Automatic Backend Behavior**:
+
+- ✅ If `score >= threshold` (default 7): Auto-advances to `finalize`
+- ❌ If `score < threshold`: Auto-returns to `refine` with suggestions
+
+**Frontend Display**:
+
+```jsx
+// Show score result in UI
+if (event.type === 'score') {
+  // Display score badge/card
+  <ScoreCard>
+    Score: {event.data.score}/10
+    Threshold: {event.data.threshold}
+    Status: {event.data.passed ? '✅ Passed' : '❌ Needs Improvement'}
+    Reasons: {event.data.reasons}
+    {!event.data.passed && (
+      <Suggestions>
+        {event.data.suggestions.map(s => <li>{s}</li>)}
+      </Suggestions>
+    )}
+  </ScoreCard>
+}
+
+```
+
+### **Step 6: Finalize** (Automatic - Server-driven)
+
+**Frontend Actions**:
+
+```jsx
+// Trigger finalize (only if score passed)
+POST /api/chat/g4_future/stream
+Body:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "message": "finalize",  // Can be any message
+  "phase": "g4_future",
+  "step": "finalize"
+}
+
+// Listen for SSE events
+Events:
+- message: "Finalizing your goal..."
+- goal_saved: {
+    "goal_id": "780e0e0d-7399-4307-99ac-6dec74a91fe1",
+    "goal_type": "future",
+    "score": 8,
+    "content": "In 3 years, I want to become a Certified Kubernetes Administrator..."
+  }
+- phase_transition: {
+    "from_phase": "g4_future",
+    "to_phase": "g4_role",
+    "step": "collect",
+    "message": "Goal saved successfully! Moving to G4 Role..."
+  }
+- complete: Finalization complete
+
+```
+
+**Automatic Backend Behavior**:
+
+- ✅ Goal saved to database with `is_final=true`
+- ✅ Auto-transitions to next phase (g4_future → g4_role → g6_values → etc.)
+
+**Frontend Actions**:
+
+```jsx
+// Update UI when goal is saved
+if (event.type === 'goal_saved') {
+  // Add to sidebar summary
+  updateGoalSummary({
+    type: event.data.goal_type,
+    content: event.data.content,
+    score: event.data.score
+  });
+
+  // Show success message
+  showNotification('Goal saved successfully!', 'success');
+}
+
+// Navigate to next phase when auto-transition occurs
+if (event.type === 'phase_transition') {
+  // Update current phase/step in state
+  updateFSMState({
+    phase: event.data.to_phase,
+    step: event.data.step
+  });
+
+  // If transitioning to different screen/tab, navigate
+  if (event.data.to_phase.startsWith('g4')) {
+    // Stay on same tab (g4 Future)
+  } else if (event.data.to_phase.startsWith('g6')) {
+    // Switch to g6 Values tab
+    switchTab('g6_values');
+  } else if (event.data.to_phase.startsWith('g8')) {
+    // Switch to g8 Actions tab
+    switchTab('g8_actions');
+  }
+}
+
+```
+
+---
+
+### **API Endpoint: /advance-step (Manual Step Transition)**
+
+**Purpose**: Frontend explicitly controls step transitions (collect → refine, refine → score)
+
+**When to Use**:
+
+- User clicks "Next" or "Continue" button after collecting enough info
+- User clicks "Refine" button to move from collect to refine
+- User clicks "Submit for Scoring" button to move from refine to score
+
+**When NOT to Use**:
+
+- Do NOT use for score → finalize (automatic)
+- Do NOT use for finalize → next_phase (automatic)
+
+**Example Usage**:
+
+```jsx
+// Example: User clicks "I'm ready to refine my goal" button
+
+const advanceStep = async () => {
+  const response = await fetch(`/api/session/${sessionId}/advance-step`, {
+    method: 'POST',
+    headers: {
+      'X-Tenant-ID': tenantId
+    }
+  });
+
+  const result = await response.json();
+  // result = { phase: "g4_future", step: "refine", ... }
+
+  // Update UI state
+  setCurrentStep(result.step);
+
+  // Show appropriate UI for new step
+  if (result.step === 'refine') {
+    showRefinementUI();
+  } else if (result.step === 'score') {
+    triggerAutomaticScoring();
+  }
+};
+
+```
+
+---
+
+### **Screen 6: Cover (Theme Introduction)**
+
+**Purpose**: Transition screen between goal sections
+
+**UI Elements**:
+
+- Title: "Theme Setting"
+- Description text explaining the next section
+- **"Continue"** button
+
+**API Call**: None (static screen)
+
+**Next Action**:
+
+- Navigate to Screen 7 (Chat - g6 Values tab)
+
+---
+
+### **Screen 7: Chat Interface (g6 Values & g6 Themes)**
+
+**Purpose**: AI-guided conversation for professional values and annual themes
+
+**Same UI as Screen 5**, but different tab:
+
+- Tab: **"g6 Values"** (active)
+- Phases: `g6_values` → `g6_themes`
+
+**API Calls**:
+
+```jsx
+// Phase 1: Values
+POST /api/chat/g6_values/stream
+Body: { session_id, message, phase: "g6_values", step: "collect/refine/score/finalize" }
+
+// Phase 2: Themes (after g6_values finalize)
+POST /api/chat/g6_themes/stream
+Body: { session_id, message, phase: "g6_themes", step: "collect/refine/score/finalize" }
+
+```
+
+**Same FSM flow**: collect → refine → score → finalize
+
+---
+
+### **Screen 8: Short Break**
+
+**Purpose**: Give user a mental break before final section
+
+**UI Elements**:
+
+- Title: "Short Break"
+- Encouraging message
+- **"Continue"** button
+
+**API Call**: None (static screen)
+
+**Next Action**:
+
+- Navigate to Screen 9 (Chat - g8 Actions tab)
+
+---
+
+### **Screen 9: Chat Interface (g8 Focus & g8 Actions)**
+
+**Purpose**: AI-guided conversation for challenges and action plans
+
+**Same UI as Screen 5**, but different tab:
+
+- Tab: **"g8 Actions"** (active)
+- Phases: `g8_focus` → `g8_actions`
+
+**API Calls**:
+
+```jsx
+// Phase 1: Challenges/Focus
+POST /api/chat/g8_focus/stream
+Body: { session_id, message, phase: "g8_focus", step: "collect/refine/score/finalize" }
+
+// Phase 2: Actions (after g8_focus finalize)
+POST /api/chat/g8_actions/stream
+Body: { session_id, message, phase: "g8_actions", step: "collect/refine/score/finalize" }
+
+```
+
+**Same FSM flow**: collect → refine → score → finalize
+
+**Final Phase Completion**:
+
+```jsx
+// After g8_actions finalize, backend transitions to "completed"
+Events:
+- goal_saved: { goal_id, goal_type: "actions", score: 9 }
+- phase_transition: {
+    "from_phase": "g8_actions",
+    "to_phase": "completed",
+    "message": "Congratulations! All phases completed."
+  }
+
+```
+
+**Next Action**:
+
+- Navigate to Screen 10 (Goals List)
+
+---
+
+### **Screen 10: Goals List (Final Review)**
+
+**Purpose**: Display all finalized goals for review
+
+**UI Elements**:
+
+- Title: "Your Goals Summary"
+- List of all 6 goals with:
+    - Goal type badge (Future Vision, Current Role, Values, Themes, Challenges, Actions)
+    - Goal content (truncated with "Read more" expansion)
+    - Score badge (with color coding: 7-8 yellow, 9-10 green)
+    - Timestamp
+- **"Export PDF"** button (optional)
+- **"Start New Session"** button
+
+**API Call**:
+
+```jsx
+GET /api/goals/session/{session_id}
+Headers:
+  X-Tenant-ID: {tenant_id}
+
+Response:
+{
+  "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+  "goals": [
+    {
+      "id": "780e0e0d-7399-4307-99ac-6dec74a91fe1",
+      "goal_type": "future",
+      "content": "In 3 years, I want to become a Certified Kubernetes Administrator...",
+      "score_value": 8,
+      "is_final": true,
+      "version": 1,
+      "created_at": "2025-10-04T09:17:02",
+      "updated_at": "2025-10-04T09:17:02"
+    },
+    {
+      "id": "10da7785-4ca5-444e-8c6b-d0e3c5ca0d1e",
+      "goal_type": "role",
+      "content": "As a Senior Software Engineer (L4) at TechCorp...",
+      "score_value": 8,
+      "is_final": true
+    },
+    // ... 4 more goals (values, themes, focus, actions)
+  ],
+  "total_count": 6,
+  "completed_phases": ["future", "role", "values", "themes", "focus", "actions"]
+}
+
+```
+
+**Display Logic**:
+
+```jsx
+const goalTypeLabels = {
+  future: "3-Year Vision",
+  role: "Current Role",
+  values: "Professional Values",
+  themes: "Annual Themes",
+  focus: "Key Challenges",
+  actions: "Action Plan"
+};
+
+const scoreColors = {
+  10: "green",
+  9: "green",
+  8: "yellow",
+  7: "yellow",
+  // Below 7 shouldn't appear (threshold enforcement)
+};
+
+```
+
+---
+
+## 🔧 Technical Implementation Guide
+
+### **1. SSE (Server-Sent Events) Handling**
+
+All chat endpoints (`/api/chat/{phase}/stream`) return Server-Sent Events.
+
+**JavaScript Implementation**:
+
+```jsx
+const streamChatMessage = async (sessionId, message, phase, step) => {
+  const response = await fetch('/api/chat/' + phase + '/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant-ID': tenantId
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      message: message,
+      phase: phase,
+      step: step
+    })
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value);
+
+    // Parse SSE format: "data: event: {type}\\ndata: data: {json}\\n\\n"
+    const events = chunk.split('\\n\\n').filter(e => e.trim());
+
+    for (const event of events) {
+      if (event.startsWith('data:')) {
+        // Extract event type and data
+        const lines = event.split('\\n');
+        let eventType = null;
+        let eventData = null;
+
+        for (const line of lines) {
+          if (line.startsWith('data: event:')) {
+            eventType = line.replace('data: event:', '').trim();
+          } else if (line.startsWith('data: data:')) {
+            eventData = JSON.parse(line.replace('data: data:', '').trim());
+          }
+        }
+
+        // Handle different event types
+        handleSSEEvent(eventType, eventData);
+      }
+    }
+  }
+};
+
+const handleSSEEvent = (eventType, eventData) => {
+  switch(eventType) {
+    case 'message':
+      // Display AI message in chat
+      appendAIMessage(eventData.content);
+      break;
+
+    case 'score':
+      // Display score result
+      showScoreCard(eventData);
+      break;
+
+    case 'step_transition':
+      // Update FSM state
+      updateCurrentStep(eventData.to_step);
+      break;
+
+    case 'phase_transition':
+      // Navigate to next phase
+      navigateToPhase(eventData.to_phase);
+      break;
+
+    case 'goal_saved':
+      // Add to goals list
+      addGoalToSummary(eventData);
+      break;
+
+    case 'complete':
+      // Message stream complete
+      setLoadingState(false);
+      break;
+
+    case 'error':
+      // Handle error
+      showError(eventData.error);
+      break;
+
+    default:
+      console.log('Unknown event type:', eventType);
+  }
+};
+
+```
+
+**React Example**:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+const ChatInterface = ({ sessionId, phase, step }) => {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const sendMessage = async (userMessage) => {
+    // Add user message to UI
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setLoading(true);
+
+    const response = await fetch(`/api/chat/${phase}/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-ID': tenantId
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        message: userMessage,
+        phase: phase,
+        step: step
+      })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let aiMessage = '';
+
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const events = chunk.split('\\n\\n').filter(e => e.trim());
+
+      for (const event of events) {
+        if (event.includes('data: event: message')) {
+          const dataLine = event.split('\\n').find(l => l.startsWith('data: data:'));
+          if (dataLine) {
+            const data = JSON.parse(dataLine.replace('data: data:', ''));
+            aiMessage += data.content;
+
+            // Update AI message in real-time (streaming effect)
+            setMessages(prev => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage?.role === 'assistant') {
+                return [...prev.slice(0, -1), { role: 'assistant', content: aiMessage }];
+              } else {
+                return [...prev, { role: 'assistant', content: aiMessage }];
+              }
+            });
+          }
+        }
+      }
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <div className="chat-interface">
+      <div className="messages">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`message message-${msg.role}`}>
+            {msg.content}
+          </div>
+        ))}
+      </div>
+      <input
+        type="text"
+        onKeyPress={(e) => e.key === 'Enter' && sendMessage(e.target.value)}
+        placeholder="Type your message..."
+      />
+    </div>
+  );
+};
+
+```
+
+---
+
+### **2. FSM State Management**
+
+**Recommended State Structure**:
+
+```jsx
+const [sessionState, setSessionState] = useState({
+  sessionId: null,
+  resumeToken: null,
+  tenantId: null,
+
+  // FSM state
+  currentPhase: 'g2_basic_info', // Current phase
+  currentStep: 'collect',        // Current step within phase
+  retryCount: 0,
+  lastScore: null,
+
+  // Collected data
+  basicInfo: null,
+  policies: null,
+  goals: [],
+
+  // UI state
+  completedPhases: [],
+  activeTab: 'g4_future'
+});
+
+// Update FSM state when backend transitions
+const updateFSMState = (phase, step) => {
+  setSessionState(prev => ({
+    ...prev,
+    currentPhase: phase,
+    currentStep: step
+  }));
+};
+
+// Check current state from backend
+const fetchCurrentState = async (sessionId) => {
+  const response = await fetch(`/api/session/${sessionId}/state`, {
+    headers: { 'X-Tenant-ID': tenantId }
+  });
+
+  const state = await response.json();
+  // state = { session_id, phase, step, retry_count, last_score, ... }
+
+  updateFSMState(state.phase, state.step);
+};
+
+```
+
+---
+
+### **3. Error Handling**
+
+**Common Error Scenarios**:
+
+```jsx
+// 1. Network error
+try {
+  const response = await fetch('/api/session/create', {...});
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+} catch (error) {
+  showError('Network error. Please check your connection.');
+}
+
+// 2. Invalid step transition
+// Backend returns 400 if trying to advance from invalid step
+const advanceStep = async () => {
+  try {
+    const response = await fetch(`/api/session/${sessionId}/advance-step`, {
+      method: 'POST',
+      headers: { 'X-Tenant-ID': tenantId }
+    });
+
+    if (response.status === 400) {
+      const error = await response.json();
+      showError(error.detail); // "Cannot advance from this step"
+    }
+  } catch (error) {
+    showError('Failed to advance step');
+  }
+};
+
+// 3. Session expired
+// Backend returns 404 if session not found or expired
+const checkSession = async (sessionId) => {
+  const response = await fetch(`/api/session/${sessionId}/state`, {
+    headers: { 'X-Tenant-ID': tenantId }
+  });
+
+  if (response.status === 404) {
+    showError('Session expired. Please start a new session.');
+    navigateTo('/');
+  }
+};
+
+// 4. Score below threshold (handled automatically by backend)
+// Backend automatically returns to 'refine' step with suggestions
+// Frontend just needs to display the suggestions
+if (event.type === 'score' && !event.data.passed) {
+  showMessage(`Score ${event.data.score} is below threshold ${event.data.threshold}`);
+  showSuggestions(event.data.suggestions);
+  // Backend already transitioned back to 'refine', no action needed
+}
+
+```
+
+---
+
+### **4. Headers Required**
+
+**Every API call must include**:
+
+```jsx
+const headers = {
+  'Content-Type': 'application/json',
+  'X-Tenant-ID': tenantId  // REQUIRED for multi-tenant isolation
+};
+
+// For SSE streaming endpoints, no additional headers needed
+// Browser handles 'Accept: text/event-stream' automatically
+
+```
+
+**How to get Tenant ID**:
+
+- Option 1: Extract from subdomain (e.g., `techcorp.petraf.com` → tenant_id lookup)
+- Option 2: Store in environment variable (for development)
+- Option 3: Fetch from backend based on domain (e.g., `GET /api/tenant/resolve?domain=techcorp.petraf.com`)
+
+---
+
+### **5. Session Persistence**
+
+**LocalStorage Strategy**:
+
+```jsx
+// Save session data
+const saveSession = (sessionId, resumeToken) => {
+  localStorage.setItem('petraf_session_id', sessionId);
+  localStorage.setItem('petraf_resume_token', resumeToken);
+  localStorage.setItem('petraf_last_saved', new Date().toISOString());
+};
+
+// Load session on app start
+const loadSession = () => {
+  const sessionId = localStorage.getItem('petraf_session_id');
+  const resumeToken = localStorage.getItem('petraf_resume_token');
+  const lastSaved = localStorage.getItem('petraf_last_saved');
+
+  if (sessionId && resumeToken) {
+    // Check if session is still valid (expires after 14 days)
+    const savedDate = new Date(lastSaved);
+    const now = new Date();
+    const daysDiff = (now - savedDate) / (1000 * 60 * 60 * 24);
+
+    if (daysDiff < 14) {
+      return { sessionId, resumeToken };
+    } else {
+      clearSession();
+      return null;
+    }
+  }
+
+  return null;
+};
+
+// Clear session
+const clearSession = () => {
+  localStorage.removeItem('petraf_session_id');
+  localStorage.removeItem('petraf_resume_token');
+  localStorage.removeItem('petraf_last_saved');
+};
+
+```
+
+**Resume Token Sharing**:
+
+```jsx
+// Generate shareable resume link
+const generateResumeLink = (resumeToken) => {
+  const baseUrl = window.location.origin;
+  return `${baseUrl}/resume?token=${resumeToken}`;
+};
+
+// Copy to clipboard
+const copyResumeLink = async () => {
+  const resumeToken = localStorage.getItem('petraf_resume_token');
+  const link = generateResumeLink(resumeToken);
+
+  await navigator.clipboard.writeText(link);
+  showNotification('Resume link copied!', 'success');
+};
+
+// Handle resume link on app load
+const handleResumeLink = async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+
+  if (token) {
+    // Call resume API
+    const response = await fetch('/api/session/resume', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-ID': tenantId
+      },
+      body: JSON.stringify({ resume_token: token })
+    });
+
+    const result = await response.json();
+    // result = { session_id, phase, step, last_saved_at }
+
+    saveSession(result.session_id, token);
+    navigateToPhase(result.phase);
+  }
+};
+
+```
+
+---
+
+## 📊 Complete Phase Mapping Reference
+
+### **Phase Name Mappings**
+
+| Backend Phase | Goal Type | UI Tab | Screen |
+| --- | --- | --- | --- |
+| g2_basic_info | N/A | N/A | Screen 3 (Form) |
+| g3_policy | N/A | N/A | Screen 4 (Form) |
+| g4_future | future | g4 Future | Screen 5 (Chat) |
+| g4_role | role | g4 Future | Screen 5 (Chat) |
+| g6_values | values | g6 Values | Screen 7 (Chat) |
+| g6_themes | themes | g6 Values | Screen 7 (Chat) |
+| g8_focus | focus | g8 Actions | Screen 9 (Chat) |
+| g8_actions | actions | g8 Actions | Screen 9 (Chat) |
+| completed | N/A | N/A | Screen 10 (List) |
+
+### **Phase Transition Sequence**
+
+```
+g2_basic_info  → g3_policy     (auto after employee info saved)
+g3_policy      → g4_future     (auto after policy input)
+g4_future      → g4_role       (auto after future goal finalized)
+g4_role        → g6_values     (auto after role goal finalized)
+g6_values      → g6_themes     (auto after values goal finalized)
+g6_themes      → g8_focus      (auto after themes goal finalized)
+g8_focus       → g8_actions    (auto after focus goal finalized)
+g8_actions     → completed     (auto after actions goal finalized)
+
+```
+
+---
+
+## 🎨 UI/UX Best Practices
+
+### **1. Loading States**
+
+```jsx
+// Show loading indicator during:
+// - Session creation
+// - SSE streaming
+// - Step transitions
+
+const LoadingIndicator = ({ message }) => (
+  <div className="loading">
+    <Spinner />
+    <p>{message || 'Loading...'}</p>
+  </div>
+);
+
+// Usage
+{loading && <LoadingIndicator message="AI is thinking..." />}
+
+```
+
+### **2. Progress Indicators**
+
+```jsx
+// Show overall progress
+const ProgressBar = ({ currentPhase, totalPhases = 6 }) => {
+  const phaseIndex = {
+    'g4_future': 0,
+    'g4_role': 1,
+    'g6_values': 2,
+    'g6_themes': 3,
+    'g8_focus': 4,
+    'g8_actions': 5,
+    'completed': 6
+  };
+
+  const progress = (phaseIndex[currentPhase] / totalPhases) * 100;
+
+  return (
+    <div className="progress-bar">
+      <div className="progress-fill" style={{ width: `${progress}%` }} />
+      <span>{Math.round(progress)}% Complete</span>
+    </div>
+  );
+};
+
+```
+
+### **3. Toast Notifications**
+
+```jsx
+// Show success/error messages
+const showNotification = (message, type = 'info') => {
+  // Use your preferred toast library (react-toastify, sonner, etc.)
+  toast[type](message, {
+    position: 'top-right',
+    autoClose: 3000
+  });
+};
+
+// Examples
+showNotification('Goal saved successfully!', 'success');
+showNotification('Score is below threshold', 'warning');
+showNotification('Failed to connect to server', 'error');
+
+```
+
+### **4. Confirmation Dialogs**
+
+```jsx
+// Confirm before leaving incomplete session
+const handleBeforeUnload = (e) => {
+  const hasUnsavedChanges = sessionState.currentPhase !== 'completed';
+
+  if (hasUnsavedChanges) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved goals. Are you sure you want to leave?';
+  }
+};
+
+useEffect(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload);
+  return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+}, [sessionState]);
+
+```
+
+---
+
+## 🐛 Debugging Tips
+
+### **1. Check Current FSM State**
+
+```jsx
+// Fetch current state anytime
+const debugState = async () => {
+  const response = await fetch(`/api/session/${sessionId}/state`, {
+    headers: { 'X-Tenant-ID': tenantId }
+  });
+
+  const state = await response.json();
+  console.log('Current FSM State:', state);
+  // { session_id, phase, step, retry_count, last_score, ... }
+};
+
+```
+
+### **2. Test SSE Connection**
+
+```bash
+# Test SSE endpoint with curl
+curl -N -X POST "<http://localhost:8000/api/chat/g4_future/stream>" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Tenant-ID: 1ee81edb-65f5-4345-bfd4-62e56a2b3927" \\
+  -d '{
+    "session_id": "01K6PPJYKC59WYG45H30K0AYMW",
+    "message": "Test message",
+    "phase": "g4_future",
+    "step": "collect"
+  }'
+
+```
+
+### **3. Enable Verbose Logging**
+
+```jsx
+// Log all SSE events
+const handleSSEEvent = (eventType, eventData) => {
+  console.log(`[SSE Event] ${eventType}:`, eventData);
+
+  // Your event handling logic...
+};
+
+```
+
+### **4. Common Issues**
+
+| Issue | Cause | Solution |
+| --- | --- | --- |
+| "Cannot advance step" | Trying to advance from wrong step | Check current state with `/state` endpoint |
+| "Session not found" | Session expired or invalid ID | Start new session or use resume token |
+| SSE connection drops | Network issue or timeout | Implement reconnection logic |
+| Score not saving | Missing required fields | Check message content meets SMART criteria |
+| Wrong phase displayed | State not synced | Fetch current state from backend |
+
+---
+
+## 📚 Additional Resources
+
+### **API Documentation**
+
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+- **Complete API Testing Guide**: See [docs/api_testing.md](https://www.notion.so/api_testing.md)
+
+### **PRD Reference**
+
+- See [prd.md](https://www.notion.so/prd.md) for complete requirements and specifications
+
+### **Backend Code Structure**
+
+- Models: `app/models/`
+- Services: `app/services/`
+- Routers: `app/routers/`
+- FSM Logic: `app/services/fsm_service.py`
+
+---
+
+## 🔄 Version History
+
+| Version | Date | Changes |
+| --- | --- | --- |
+| 1.0 | 2025-10-04 | Initial documentation with complete screen flow and API mappings |
+
+---
+
+## 📞 Support
+
+For questions or issues:
+
+- **Backend Issues**: Check backend logs and API documentation
+- **Integration Questions**: Refer to this document and api_testing.md
+- **Feature Requests**: Contact product team
+
+---
+
+**End of Frontend Integration Guide**

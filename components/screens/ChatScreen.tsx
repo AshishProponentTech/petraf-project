@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, Copy, RefreshCw } from "lucide-react";
-import { api } from "@/lib/api";
+import { api } from "@/src/lib/api";
 import { toast } from "@/hooks/use-toast";
 
 interface ChatScreenProps {
